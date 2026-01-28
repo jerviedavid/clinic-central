@@ -1,19 +1,18 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
-import { db } from '../../../firebase/config'
-import { 
-  DollarSign, 
-  FileText, 
-  CreditCard, 
-  Banknote, 
-  Globe, 
-  TrendingUp, 
+import {
+  DollarSign,
+  FileText,
+  CreditCard,
+  Banknote,
+  Globe,
+  TrendingUp,
   Calendar,
   Plus,
   Eye,
   Download
 } from 'lucide-react'
+import api from '../../../utils/api'
 
 export default function BillingDashboard() {
   const [stats, setStats] = useState({
@@ -31,62 +30,54 @@ export default function BillingDashboard() {
   useEffect(() => {
     const fetchBillingData = async () => {
       try {
-        // Fetch invoices
-        const invoicesRef = collection(db, 'invoices')
-        const invoicesQuery = query(invoicesRef, orderBy('createdAt', 'desc'))
-        
-        const unsubscribe = onSnapshot(invoicesQuery, (snapshot) => {
-          const invoicesData = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          }))
-          
-          // Calculate statistics
-          const totalInvoices = invoicesData.length
-          const pendingPayments = invoicesData.filter(inv => inv.status === 'pending').length
-          const totalRevenue = invoicesData.reduce((sum, inv) => sum + (inv.totalAmount || 0), 0)
-          
-          // Today's revenue
-          const today = new Date().toISOString().split('T')[0]
-          const todayRevenue = invoicesData
-            .filter(inv => inv.createdAt?.toDate?.()?.toISOString?.()?.split('T')[0] === today)
-            .reduce((sum, inv) => sum + (inv.totalAmount || 0), 0)
-          
-          // Payment method breakdown
-          const cashPayments = invoicesData
-            .filter(inv => inv.paymentMethod === 'cash' && inv.status === 'paid')
-            .reduce((sum, inv) => sum + (inv.totalAmount || 0), 0)
-          
-          const cardPayments = invoicesData
-            .filter(inv => inv.paymentMethod === 'card' && inv.status === 'paid')
-            .reduce((sum, inv) => sum + (inv.totalAmount || 0), 0)
-          
-          const onlinePayments = invoicesData
-            .filter(inv => inv.paymentMethod === 'online' && inv.status === 'paid')
-            .reduce((sum, inv) => sum + (inv.totalAmount || 0), 0)
-          
-          setStats({
-            totalInvoices,
-            pendingPayments,
-            totalRevenue,
-            todayRevenue,
-            cashPayments,
-            cardPayments,
-            onlinePayments
-          })
-          
-          setRecentInvoices(invoicesData.slice(0, 5))
-          setLoading(false)
+        const response = await api.get('/invoices');
+        const invoicesData = response.data;
+
+        // Calculate statistics
+        const totalInvoices = invoicesData.length
+        const pendingPayments = invoicesData.filter(inv => inv.status === 'pending').length
+        const totalRevenue = invoicesData.reduce((sum, inv) => sum + (inv.totalAmount || 0), 0)
+
+        // Today's revenue
+        const today = new Date().toISOString().split('T')[0]
+        const todayRevenue = invoicesData
+          .filter(inv => (inv.createdAt || '').split(' ')[0] === today)
+          .reduce((sum, inv) => sum + (inv.totalAmount || 0), 0)
+
+        // Payment method breakdown
+        const cashPayments = invoicesData
+          .filter(inv => inv.paymentMethod === 'cash' && inv.status === 'paid')
+          .reduce((sum, inv) => sum + (inv.totalAmount || 0), 0)
+
+        const cardPayments = invoicesData
+          .filter(inv => inv.paymentMethod === 'card' && inv.status === 'paid')
+          .reduce((sum, inv) => sum + (inv.totalAmount || 0), 0)
+
+        const onlinePayments = invoicesData
+          .filter(inv => inv.paymentMethod === 'online' && inv.status === 'paid')
+          .reduce((sum, inv) => sum + (inv.totalAmount || 0), 0)
+
+        setStats({
+          totalInvoices,
+          pendingPayments,
+          totalRevenue,
+          todayRevenue,
+          cashPayments,
+          cardPayments,
+          onlinePayments
         })
-        
-        return unsubscribe
+
+        setRecentInvoices(invoicesData.slice(0, 5))
+        setLoading(false)
       } catch (error) {
         console.error('Error fetching billing data:', error)
         setLoading(false)
       }
     }
-    
+
     fetchBillingData()
+    const interval = setInterval(fetchBillingData, 10000);
+    return () => clearInterval(interval);
   }, [])
 
   if (loading) {
@@ -184,8 +175,8 @@ export default function BillingDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
           <div className="bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-xl">
             <div className="flex items-center space-x-3 mb-4">
-                             <Banknote className="w-6 h-6 text-green-400" />
-               <h3 className="text-lg font-semibold">Cash Payments</h3>
+              <Banknote className="w-6 h-6 text-green-400" />
+              <h3 className="text-lg font-semibold">Cash Payments</h3>
             </div>
             <p className="text-2xl font-bold text-green-400">₹{stats.cashPayments.toLocaleString()}</p>
             <p className="text-sm text-slate-400 mt-2">Total cash received</p>
@@ -279,7 +270,7 @@ export default function BillingDashboard() {
               View All →
             </Link>
           </div>
-          
+
           {recentInvoices.length === 0 ? (
             <p className="text-slate-400 text-center py-8">No invoices found</p>
           ) : (
@@ -311,13 +302,12 @@ export default function BillingDashboard() {
                         <span className="font-bold text-green-400">₹{invoice.totalAmount?.toLocaleString()}</span>
                       </td>
                       <td className="py-3 px-4">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          invoice.status === 'paid' 
-                            ? 'bg-green-500/20 text-green-400' 
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${invoice.status === 'paid'
+                            ? 'bg-green-500/20 text-green-400'
                             : invoice.status === 'pending'
-                            ? 'bg-yellow-500/20 text-yellow-400'
-                            : 'bg-red-500/20 text-red-400'
-                        }`}>
+                              ? 'bg-yellow-500/20 text-yellow-400'
+                              : 'bg-red-500/20 text-red-400'
+                          }`}>
                           {invoice.status?.charAt(0).toUpperCase() + invoice.status?.slice(1)}
                         </span>
                       </td>

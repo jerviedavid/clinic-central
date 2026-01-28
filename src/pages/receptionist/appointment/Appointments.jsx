@@ -3,12 +3,12 @@ import { useAuth } from '../../../hooks/useAuth'
 import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import LogoutButton from '../../../components/LogoutButton'
-import { 
-  Bell, 
-  Plus, 
-  Edit, 
-  Calendar, 
-  X, 
+import {
+  Bell,
+  Plus,
+  Edit,
+  Calendar,
+  X,
   Search,
   Filter,
   UserCheck,
@@ -19,17 +19,19 @@ import {
   AlertTriangle,
   ArrowLeft
 } from 'lucide-react'
-import { collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy, where } from 'firebase/firestore'
-import { db } from '../../../firebase/config'
+import api from '../../../utils/api'
 
 export default function Appointments() {
   const { currentUser } = useAuth()
   const [appointments, setAppointments] = useState([])
   const [doctors, setDoctors] = useState([])
+  const [patients, setPatients] = useState([])
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [selectedAppointment, setSelectedAppointment] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [patientSearchTerm, setPatientSearchTerm] = useState('')
+  const [showPatientResults, setShowPatientResults] = useState(false)
   const [filterStatus, setFilterStatus] = useState('all')
   const [loading, setLoading] = useState(false)
 
@@ -57,43 +59,57 @@ export default function Appointments() {
     }
   })
 
-  // Fetch real data from Firebase
+  // Fetch data from API
   useEffect(() => {
-    // Fetch appointments
-    const appointmentsRef = collection(db, 'appointments')
-    const q = query(appointmentsRef, orderBy('createdAt', 'desc'))
-    
-    const unsubscribeAppointments = onSnapshot(q, (snapshot) => {
-      const appointmentsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-      setAppointments(appointmentsData)
-    }, (error) => {
-      console.error('Error fetching appointments:', error)
-    })
+    const fetchData = async () => {
+      try {
+        const [apptsRes, doctorsRes, patientsRes] = await Promise.all([
+          api.get('/appointments'),
+          api.get('/doctors'),
+          api.get('/patients')
+        ]);
+        setAppointments(apptsRes.data);
+        setDoctors(doctorsRes.data);
+        setPatients(patientsRes.data);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      }
+    };
 
-    // Fetch doctors from staffData collection
-    const doctorsRef = collection(db, 'staffData')
-    const doctorsQuery = query(doctorsRef, where('role', '==', 'doctor'))
-    
-    const unsubscribeDoctors = onSnapshot(doctorsQuery, (snapshot) => {
-      const doctorsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-      setDoctors(doctorsData)
-    }, (error) => {
-      console.error('Error fetching doctors:', error)
-    })
-
-    return () => {
-      unsubscribeAppointments()
-      unsubscribeDoctors()
-    }
+    fetchData();
+    const interval = setInterval(fetchData, 15000);
+    return () => clearInterval(interval);
   }, [])
 
+  const handleSelectPatient = (patient) => {
+    let age = ''
+    if (patient.dateOfBirth) {
+      const birthDate = new Date(patient.dateOfBirth)
+      const today = new Date()
+      age = today.getFullYear() - birthDate.getFullYear()
+      const m = today.getMonth() - birthDate.getMonth()
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+        age--
+      }
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      patientName: patient.fullName,
+      patientPhone: patient.phone || '',
+      patientEmail: patient.email || '',
+      patientAge: age.toString(),
+      patientGender: patient.gender || '',
+      medicalHistory: patient.medicalHistory || prev.medicalHistory
+    }))
+    setPatientSearchTerm('')
+    setShowPatientResults(false)
+    toast.success(`Selected patient: ${patient.fullName}`)
+  }
+
   const handleCreateAppointment = () => {
+    setPatientSearchTerm('')
+    setShowPatientResults(false)
     setFormData({
       patientName: '',
       patientPhone: '',
@@ -120,6 +136,8 @@ export default function Appointments() {
   }
 
   const handleEditAppointment = (appointment) => {
+    setPatientSearchTerm('')
+    setShowPatientResults(false)
     setSelectedAppointment(appointment)
     setFormData({
       patientName: appointment.patientName || '',
@@ -160,7 +178,7 @@ export default function Appointments() {
       return false
     }
     if (!formData.doctorName.trim()) {
-      toast.error('Please select a doctor')
+      toast.error('Please select at least one doctor')
       return false
     }
     if (!formData.appointmentDate) {
@@ -176,55 +194,56 @@ export default function Appointments() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    
+
     if (!validateForm()) {
       return
     }
-    
+
     setLoading(true)
-    
+
     try {
       if (showEditModal) {
-        // Update existing appointment in Firestore
-        const appointmentRef = doc(db, 'appointments', selectedAppointment.id)
-        await updateDoc(appointmentRef, {
-          ...formData,
-          updatedAt: new Date().toISOString()
+        // Update existing appointment
+        await api.patch(`/appointments/${selectedAppointment.id}`, {
+          ...formData
         })
         toast.success('Appointment updated successfully!')
         setShowEditModal(false)
       } else {
-        // Create new appointment in Firestore
-        const appointmentData = {
+        // Create new appointment
+        await api.post('/appointments', {
           ...formData,
-          createdAt: new Date().toISOString(),
-          createdBy: currentUser?.uid || 'receptionist',
-          status: 'scheduled' // Ensure status is set to scheduled
-        }
-        
-        await addDoc(collection(db, 'appointments'), appointmentData)
+          createdBy: currentUser?.id || 'receptionist'
+        })
         toast.success('Appointment created successfully!')
         setShowCreateModal(false)
       }
+
+      // Refresh list
+      const response = await api.get('/appointments')
+      setAppointments(response.data)
     } catch (error) {
       console.error('Error saving appointment:', error)
-      toast.error(`Error saving appointment: ${error.message}`)
+      toast.error('Error saving appointment')
     } finally {
       setLoading(false)
     }
   }
 
   const handleCancelAppointment = async (appointmentId) => {
-    try {
-      const appointmentRef = doc(db, 'appointments', appointmentId)
-      await updateDoc(appointmentRef, {
-        status: 'cancelled',
-        updatedAt: new Date().toISOString()
-      })
-      toast.success('Appointment cancelled successfully!')
-    } catch (error) {
-      console.error('Error cancelling appointment:', error)
-      toast.error(`Error cancelling appointment: ${error.message}`)
+    if (window.confirm('Are you sure you want to cancel this appointment?')) {
+      try {
+        await api.patch(`/appointments/${appointmentId}`, {
+          status: 'cancelled'
+        })
+        toast.success('Appointment cancelled successfully!')
+        setAppointments(prev => prev.map(apt =>
+          apt.id === appointmentId ? { ...apt, status: 'cancelled' } : apt
+        ))
+      } catch (error) {
+        console.error('Error cancelling appointment:', error)
+        toast.error('Error cancelling appointment')
+      }
     }
   }
 
@@ -240,7 +259,7 @@ export default function Appointments() {
 
   const filteredAppointments = appointments.filter(appointment => {
     const matchesSearch = appointment.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         appointment.doctorName.toLowerCase().includes(searchTerm.toLowerCase())
+      appointment.doctorName.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesFilter = filterStatus === 'all' || appointment.status === filterStatus
     return matchesSearch && matchesFilter
   })
@@ -255,7 +274,7 @@ export default function Appointments() {
     }
   }
 
-       // Generate time slots from 11:00 AM to 6:00 PM
+  // Generate time slots from 11:00 AM to 6:00 PM
   const generateTimeSlots = () => {
     const slots = []
     for (let hour = 11; hour <= 18; hour++) {
@@ -290,28 +309,28 @@ export default function Appointments() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 text-white">
-             {/* Header */}
-       <header className="bg-white/5 backdrop-blur-xl border-b border-white/10 p-4">
-         <div className="max-w-7xl mx-auto flex justify-between items-center">
-           <div className="flex items-center space-x-3">
-             <Link 
-               to="/receptionist"
-               className="flex items-center space-x-2 px-3 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 rounded-lg transition-colors"
-             >
-               <ArrowLeft className="w-4 h-4" />
-               <span className="text-sm font-medium">Back to Dashboard</span>
-             </Link>
-             <div className="w-10 h-10 bg-cyan-500/20 rounded-xl flex items-center justify-center">
-               <Bell className="w-6 h-6 text-cyan-400" />
-             </div>
-             <div>
-               <h1 className="text-xl font-bold">Appointment Management</h1>
-               <p className="text-sm text-slate-400">Welcome, {currentUser?.displayName || 'Receptionist'}</p>
-             </div>
-           </div>
-           <LogoutButton />
-         </div>
-       </header>
+      {/* Header */}
+      <header className="bg-white/5 backdrop-blur-xl border-b border-white/10 p-4">
+        <div className="max-w-7xl mx-auto flex justify-between items-center">
+          <div className="flex items-center space-x-3">
+            <Link
+              to="/receptionist"
+              className="flex items-center space-x-2 px-3 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 rounded-lg transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span className="text-sm font-medium">Back to Dashboard</span>
+            </Link>
+            <div className="w-10 h-10 bg-cyan-500/20 rounded-xl flex items-center justify-center">
+              <Bell className="w-6 h-6 text-cyan-400" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">Appointment Management</h1>
+              <p className="text-sm text-slate-400">Welcome, {currentUser?.fullName || 'Receptionist'}</p>
+            </div>
+          </div>
+          <LogoutButton />
+        </div>
+      </header>
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto p-6">
@@ -344,7 +363,7 @@ export default function Appointments() {
             onClick={handleCreateAppointment}
             className="flex items-center space-x-2 px-4 py-2 bg-cyan-500 hover:bg-cyan-600 text-white rounded-lg transition-colors"
           >
-                         <Plus className="w-4 h-4" />
+            <Plus className="w-4 h-4" />
             <span>New Appointment</span>
           </button>
         </div>
@@ -352,10 +371,10 @@ export default function Appointments() {
         {/* Appointments List */}
         <div className="bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-xl">
           <h2 className="text-xl font-bold mb-6">Appointments ({filteredAppointments.length})</h2>
-          
+
           {filteredAppointments.length === 0 ? (
             <div className="text-center py-8">
-                             <Calendar className="w-16 h-16 text-slate-400 mx-auto mb-4" />
+              <Calendar className="w-16 h-16 text-slate-400 mx-auto mb-4" />
               <p className="text-slate-400">No appointments found</p>
             </div>
           ) : (
@@ -371,54 +390,56 @@ export default function Appointments() {
                           <span className="capitalize">{appointment.status}</span>
                         </span>
                       </div>
-                      
+
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-                                                 <div className="flex items-center space-x-2">
-                           <UserCheck className="w-4 h-4 text-slate-400" />
-                           <span className="text-slate-300">{appointment.doctorName}</span>
-                         </div>
-                         <div className="flex items-center space-x-2">
-                           <Calendar className="w-4 h-4 text-slate-400" />
-                           <span className="text-slate-300">
-                             {new Date(appointment.appointmentDate).toLocaleDateString()} at {appointment.appointmentTime}
-                           </span>
-                         </div>
-                         <div className="flex items-center space-x-2">
-                           <Phone className="w-4 h-4 text-slate-400" />
-                           <span className="text-slate-300">{appointment.patientPhone}</span>
-                         </div>
-                         <div className="flex items-center space-x-2">
-                           <Mail className="w-4 h-4 text-slate-400" />
-                           <span className="text-slate-300">{appointment.patientEmail}</span>
-                         </div>
+                        <div className="flex items-start space-x-2">
+                          <UserCheck className="w-4 h-4 text-slate-400 mt-1" />
+                          <span className="text-slate-300">
+                            {appointment.doctorName.split(', ').map(name => `Dr. ${name}`).join(', ')}
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Calendar className="w-4 h-4 text-slate-400" />
+                          <span className="text-slate-300">
+                            {new Date(appointment.appointmentDate).toLocaleDateString()} at {appointment.appointmentTime}
+                          </span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Phone className="w-4 h-4 text-slate-400" />
+                          <span className="text-slate-300">{appointment.patientPhone}</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <Mail className="w-4 h-4 text-slate-400" />
+                          <span className="text-slate-300">{appointment.patientEmail}</span>
+                        </div>
                       </div>
-                      
+
                       {appointment.notes && (
                         <p className="text-sm text-slate-400 mt-2">{appointment.notes}</p>
                       )}
                     </div>
-                    
+
                     <div className="flex space-x-2">
-                                             <button
-                         onClick={() => handleEditAppointment(appointment)}
-                         className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm transition-colors"
-                       >
-                         <Edit className="w-3 h-3" />
-                       </button>
-                       <button
-                         onClick={() => handleRescheduleAppointment(appointment.id)}
-                         className="px-3 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-sm transition-colors"
-                       >
-                         <Calendar className="w-3 h-3" />
-                       </button>
-                       {appointment.status === 'scheduled' && (
-                         <button
-                           onClick={() => handleCancelAppointment(appointment.id)}
-                           className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-sm transition-colors"
-                         >
-                           <X className="w-3 h-3" />
-                         </button>
-                       )}
+                      <button
+                        onClick={() => handleEditAppointment(appointment)}
+                        className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-sm transition-colors"
+                      >
+                        <Edit className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => handleRescheduleAppointment(appointment.id)}
+                        className="px-3 py-1 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-sm transition-colors"
+                      >
+                        <Calendar className="w-3 h-3" />
+                      </button>
+                      {appointment.status === 'scheduled' && (
+                        <button
+                          onClick={() => handleCancelAppointment(appointment.id)}
+                          className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-sm transition-colors"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -435,7 +456,57 @@ export default function Appointments() {
             <h2 className="text-xl font-bold mb-6">
               {showCreateModal ? 'Create New Appointment' : 'Edit Appointment'}
             </h2>
-            
+
+            {showCreateModal && (
+              <div className="mb-6 relative">
+                <label className="block text-sm font-medium text-cyan-400 mb-2">Reflect Details from Patient Management</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                  <input
+                    type="text"
+                    placeholder="Search by name, phone or email..."
+                    value={patientSearchTerm}
+                    onChange={(e) => {
+                      setPatientSearchTerm(e.target.value)
+                      setShowPatientResults(true)
+                    }}
+                    onFocus={() => setShowPatientResults(true)}
+                    className="w-full pl-10 pr-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:border-cyan-400 focus:outline-none transition-all"
+                  />
+                  {showPatientResults && patientSearchTerm.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-slate-700 border border-white/10 rounded-xl shadow-2xl z-[60] max-h-60 overflow-y-auto">
+                      {patients.filter(p =>
+                        p.fullName.toLowerCase().includes(patientSearchTerm.toLowerCase()) ||
+                        p.phone?.includes(patientSearchTerm) ||
+                        p.email?.toLowerCase().includes(patientSearchTerm.toLowerCase())
+                      ).length === 0 ? (
+                        <div className="p-4 text-center text-slate-500 text-sm">No patients found in directory</div>
+                      ) : (
+                        patients.filter(p =>
+                          p.fullName.toLowerCase().includes(patientSearchTerm.toLowerCase()) ||
+                          p.phone?.includes(patientSearchTerm) ||
+                          p.email?.toLowerCase().includes(patientSearchTerm.toLowerCase())
+                        ).map(patient => (
+                          <div
+                            key={patient.id}
+                            onClick={() => handleSelectPatient(patient)}
+                            className="p-3 hover:bg-cyan-500/20 cursor-pointer border-b border-white/5 last:border-0 transition-colors"
+                          >
+                            <div className="font-bold text-white mb-0.5">{patient.fullName}</div>
+                            <div className="text-[10px] text-slate-400 flex items-center gap-2">
+                              {patient.phone && <span>{patient.phone}</span>}
+                              {patient.phone && patient.email && <span className="w-1 h-1 bg-slate-600 rounded-full"></span>}
+                              {patient.email && <span className="truncate">{patient.email}</span>}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -443,34 +514,34 @@ export default function Appointments() {
                   <input
                     type="text"
                     value={formData.patientName}
-                    onChange={(e) => setFormData({...formData, patientName: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, patientName: e.target.value })}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none"
                     required
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Patient Phone</label>
                   <input
                     type="tel"
                     value={formData.patientPhone}
-                    onChange={(e) => setFormData({...formData, patientPhone: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, patientPhone: e.target.value })}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none"
                     required
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Patient Email</label>
                   <input
                     type="email"
                     value={formData.patientEmail}
-                    onChange={(e) => setFormData({...formData, patientEmail: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, patientEmail: e.target.value })}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none"
                     required
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Patient Age</label>
                   <input
@@ -478,17 +549,17 @@ export default function Appointments() {
                     min="0"
                     max="150"
                     value={formData.patientAge}
-                    onChange={(e) => setFormData({...formData, patientAge: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, patientAge: e.target.value })}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none"
                     placeholder="Enter age"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Patient Gender</label>
                   <select
                     value={formData.patientGender}
-                    onChange={(e) => setFormData({...formData, patientGender: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, patientGender: e.target.value })}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none [&>option]:text-black [&>option]:bg-white"
                   >
                     <option value="">Select gender</option>
@@ -497,38 +568,53 @@ export default function Appointments() {
                     <option value="Other">Other</option>
                   </select>
                 </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Doctor Name</label>
-                  <select
-                    value={formData.doctorName}
-                    onChange={(e) => setFormData({...formData, doctorName: e.target.value})}
-                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none [&>option]:text-black [&>option]:bg-white"
-                    required
-                  >
-                    <option value="">
-                      {doctors.length === 0 ? 'No doctors available' : 'Select a doctor'}
-                    </option>
-                    {doctors.map((doctor) => (
-                      <option key={doctor.id} value={doctor.fullName || doctor.displayName || doctor.name}>
-                        Dr. {doctor.fullName || doctor.name}
-                        {doctor.specialization && ` (${doctor.specialization})`}
-                      </option>
-                    ))}
-                  </select>
-                  {doctors.length === 0 && (
-                    <p className="text-xs text-red-400 mt-1">
-                      No doctors found. Please add doctors to the staffData collection with role: 'doctor'
-                    </p>
-                  )}
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-slate-300 mb-3">Assigned Doctors</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-white/5 border border-white/10 rounded-xl max-h-48 overflow-y-auto">
+                    {doctors.length === 0 ? (
+                      <p className="text-sm text-red-400 p-2 col-span-full">No doctors found in staff directory.</p>
+                    ) : (
+                      doctors.map((doctor) => {
+                        const docName = doctor.fullName || doctor.name;
+                        const isSelected = formData.doctorName.split(', ').includes(docName);
+
+                        return (
+                          <label key={doctor.id} className={`flex items-start space-x-3 p-2 rounded-lg cursor-pointer transition-colors ${isSelected ? 'bg-cyan-500/20 border border-cyan-500/30' : 'hover:bg-white/5 border border-transparent'}`}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                let currentDoctors = formData.doctorName ? formData.doctorName.split(', ').filter(d => d) : [];
+                                if (e.target.checked) {
+                                  if (!currentDoctors.includes(docName)) currentDoctors.push(docName);
+                                } else {
+                                  currentDoctors = currentDoctors.filter(d => d !== docName);
+                                }
+                                setFormData({ ...formData, doctorName: currentDoctors.join(', ') });
+                              }}
+                              className="mt-1 w-4 h-4 rounded border-white/10 text-cyan-500 focus:ring-cyan-500 bg-white/5"
+                            />
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-white">Dr. {docName}</p>
+                              {doctor.specialization && (
+                                <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">{doctor.specialization}</p>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-2 italic px-1">Tip: You can select multiple doctors for this appointment.</p>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Appointment Date</label>
                   <input
                     type="date"
                     value={formData.appointmentDate}
-                    onChange={(e) => setFormData({...formData, appointmentDate: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, appointmentDate: e.target.value })}
                     min={getMinDate()}
                     max={getMaxDate()}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none"
@@ -538,12 +624,12 @@ export default function Appointments() {
                     Available: {getMinDate()} to {getMaxDate()}
                   </p>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Appointment Time</label>
                   <select
                     value={formData.appointmentTime}
-                    onChange={(e) => setFormData({...formData, appointmentTime: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, appointmentTime: e.target.value })}
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none [&>option]:text-black [&>option]:bg-white"
                     required
                   >
@@ -555,86 +641,86 @@ export default function Appointments() {
                     ))}
                   </select>
                 </div>
-                
-                                 <div>
-                   <label className="block text-sm font-medium text-slate-300 mb-2">Appointment Type</label>
-                   <select
-                     value={formData.appointmentType}
-                     onChange={(e) => setFormData({...formData, appointmentType: e.target.value})}
-                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none [&>option]:text-black [&>option]:bg-white"
-                   >
-                     <option value="consultation">Consultation</option>
-                     <option value="checkup">Checkup</option>
-                     <option value="emergency">Emergency</option>
-                     <option value="followup">Follow-up</option>
-                   </select>
-                 </div>
-                 
-                 <div>
-                   <label className="block text-sm font-medium text-slate-300 mb-2">Status</label>
-                   <select
-                     value={formData.status}
-                     onChange={(e) => setFormData({...formData, status: e.target.value})}
-                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none [&>option]:text-black [&>option]:bg-white"
-                   >
-                     <option value="scheduled">Scheduled</option>
-                     <option value="completed">Completed</option>
-                     <option value="cancelled">Cancelled</option>
-                     <option value="rescheduled">Rescheduled</option>
-                   </select>
-                 </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Appointment Type</label>
+                  <select
+                    value={formData.appointmentType}
+                    onChange={(e) => setFormData({ ...formData, appointmentType: e.target.value })}
+                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none [&>option]:text-black [&>option]:bg-white"
+                  >
+                    <option value="consultation">Consultation</option>
+                    <option value="checkup">Checkup</option>
+                    <option value="emergency">Emergency</option>
+                    <option value="followup">Follow-up</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Status</label>
+                  <select
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none [&>option]:text-black [&>option]:bg-white"
+                  >
+                    <option value="scheduled">Scheduled</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                    <option value="rescheduled">Rescheduled</option>
+                  </select>
+                </div>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">Notes</label>
                 <textarea
                   value={formData.notes}
-                  onChange={(e) => setFormData({...formData, notes: e.target.value})}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   rows="3"
                   className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none"
                   placeholder="Additional notes..."
                 />
               </div>
-              
+
               {/* Medical Information Section */}
               <div className="border-t border-white/10 pt-4">
                 <h3 className="text-lg font-semibold mb-4 text-cyan-400">Medical Information</h3>
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-2">Symptoms</label>
                     <textarea
                       value={formData.symptoms}
-                      onChange={(e) => setFormData({...formData, symptoms: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, symptoms: e.target.value })}
                       rows="2"
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none"
                       placeholder="Current symptoms..."
                     />
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium text-slate-300 mb-2">Medical History</label>
                     <textarea
                       value={formData.medicalHistory}
-                      onChange={(e) => setFormData({...formData, medicalHistory: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, medicalHistory: e.target.value })}
                       rows="2"
                       className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none"
                       placeholder="Past medical conditions..."
                     />
                   </div>
                 </div>
-                
+
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-slate-300 mb-2">Current Medications</label>
                   <textarea
                     value={formData.medications}
-                    onChange={(e) => setFormData({...formData, medications: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, medications: e.target.value })}
                     rows="2"
                     className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none"
                     placeholder="Current medications and dosages..."
                   />
                 </div>
-                
+
                 {/* Vital Signs */}
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Vital Signs</label>
@@ -645,8 +731,8 @@ export default function Appointments() {
                         type="text"
                         value={formData.vitalSigns.bloodPressure}
                         onChange={(e) => setFormData({
-                          ...formData, 
-                          vitalSigns: {...formData.vitalSigns, bloodPressure: e.target.value}
+                          ...formData,
+                          vitalSigns: { ...formData.vitalSigns, bloodPressure: e.target.value }
                         })}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none text-sm"
                         placeholder="e.g., 120/80"
@@ -658,8 +744,8 @@ export default function Appointments() {
                         type="text"
                         value={formData.vitalSigns.heartRate}
                         onChange={(e) => setFormData({
-                          ...formData, 
-                          vitalSigns: {...formData.vitalSigns, heartRate: e.target.value}
+                          ...formData,
+                          vitalSigns: { ...formData.vitalSigns, heartRate: e.target.value }
                         })}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none text-sm"
                         placeholder="e.g., 72 bpm"
@@ -671,8 +757,8 @@ export default function Appointments() {
                         type="text"
                         value={formData.vitalSigns.temperature}
                         onChange={(e) => setFormData({
-                          ...formData, 
-                          vitalSigns: {...formData.vitalSigns, temperature: e.target.value}
+                          ...formData,
+                          vitalSigns: { ...formData.vitalSigns, temperature: e.target.value }
                         })}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none text-sm"
                         placeholder="e.g., 98.6°F"
@@ -684,8 +770,8 @@ export default function Appointments() {
                         type="text"
                         value={formData.vitalSigns.weight}
                         onChange={(e) => setFormData({
-                          ...formData, 
-                          vitalSigns: {...formData.vitalSigns, weight: e.target.value}
+                          ...formData,
+                          vitalSigns: { ...formData.vitalSigns, weight: e.target.value }
                         })}
                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:border-cyan-400 focus:outline-none text-sm"
                         placeholder="e.g., 180 lbs"
@@ -694,7 +780,7 @@ export default function Appointments() {
                   </div>
                 </div>
               </div>
-              
+
               <div className="flex justify-end space-x-3 pt-4">
                 <button
                   type="button"

@@ -16,34 +16,28 @@ export default function ForgotPasswordForm() {
       setError('Please enter your email address');
       return;
     }
-    
+
     // Basic email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email.trim())) {
       setError('Please enter a valid email address');
       return;
     }
-    
+
     setIsLoading(true);
     setError('');
-    
+
     try {
-      // Use Firebase password reset
       await resetPassword(email.trim());
       setIsSubmitted(true);
     } catch (error) {
       console.error('Password reset error:', error);
-      // Handle specific Firebase errors
       let errorMessage = 'Failed to send reset email. Please try again.';
-      
-      if (error.code === 'auth/user-not-found') {
-        errorMessage = 'No account found with this email address.';
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Please enter a valid email address.';
-      } else if (error.code === 'auth/too-many-requests') {
-        errorMessage = 'Too many requests. Please try again later.';
+
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message
       }
-      
+
       setError(errorMessage);
     } finally {
       setIsLoading(false);
@@ -86,7 +80,7 @@ export default function ForgotPasswordForm() {
                 </ul>
               </div>
               <div className="space-y-3">
-                <button 
+                <button
                   onClick={() => setIsSubmitted(false)}
                   className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 >
@@ -168,7 +162,7 @@ export default function ForgotPasswordForm() {
                     <span className="text-sm">{error}</span>
                   </div>
                 )}
-                
+
                 {/* Helpful information */}
                 <div className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
                   <p className="mb-1"><strong>What happens next?</strong></p>
@@ -181,8 +175,8 @@ export default function ForgotPasswordForm() {
                 </div>
               </div>
               {/* Submit Button */}
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 className="w-full h-12 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white font-medium text-lg shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={isLoading}
               >
@@ -201,8 +195,8 @@ export default function ForgotPasswordForm() {
             </form>
             {/* Back to Login */}
             <div className="text-center">
-              <Link 
-                to="/login" 
+              <Link
+                to="/login"
                 className="inline-flex items-center text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium hover:underline transition-colors"
               >
                 <FaArrowLeft className="w-4 h-4 mr-2" />
@@ -214,8 +208,8 @@ export default function ForgotPasswordForm() {
         <div className="text-center mt-6 text-sm text-gray-600 dark:text-gray-400">
           <p>
             Remember your password?{' '}
-            <Link 
-              to="/login" 
+            <Link
+              to="/login"
               className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium hover:underline transition-colors"
             >
               Sign in here

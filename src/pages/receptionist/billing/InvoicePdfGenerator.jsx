@@ -1,11 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { doc, getDoc } from 'firebase/firestore'
-import { db } from '../../../firebase/config'
-import { 
-  ArrowLeft, 
-  Download, 
-  Printer, 
+import {
+  ArrowLeft,
+  Download,
+  Printer,
   FileText,
   User,
   Phone,
@@ -18,6 +16,7 @@ import {
   Clock,
   AlertCircle
 } from 'lucide-react'
+import api from '../../../utils/api'
 
 export default function InvoicePdfGenerator() {
   const { id } = useParams()
@@ -29,17 +28,17 @@ export default function InvoicePdfGenerator() {
   useEffect(() => {
     const fetchInvoice = async () => {
       try {
-        const invoiceDoc = await getDoc(doc(db, 'invoices', id))
-        if (invoiceDoc.exists()) {
-          setInvoice({ id: invoiceDoc.id, ...invoiceDoc.data() })
-        } else {
-          alert('Invoice not found')
-          navigate('/receptionist/billing')
-        }
+        const response = await api.get(`/invoices/${id}`)
+        setInvoice(response.data)
         setLoading(false)
       } catch (error) {
         console.error('Error fetching invoice:', error)
-        alert('Error fetching invoice')
+        if (error.response?.status === 404) {
+          alert('Invoice not found')
+          navigate('/receptionist/billing')
+        } else {
+          alert('Error fetching invoice')
+        }
         setLoading(false)
       }
     }
@@ -69,10 +68,10 @@ export default function InvoicePdfGenerator() {
     try {
       // Create a new window for printing
       const printWindow = window.open('', '_blank')
-      
+
       // Generate HTML content for the invoice
       const invoiceHTML = generateInvoiceHTML()
-      
+
       printWindow.document.write(`
         <!DOCTYPE html>
         <html>
@@ -199,14 +198,14 @@ export default function InvoicePdfGenerator() {
         </body>
         </html>
       `)
-      
+
       printWindow.document.close()
-      
+
       // Wait for content to load then print
       printWindow.onload = () => {
         printWindow.print()
       }
-      
+
     } catch (error) {
       console.error('Error generating PDF:', error)
       alert('Error generating PDF. Please try again.')
@@ -249,61 +248,53 @@ export default function InvoicePdfGenerator() {
           </div>
         </div>
 
-        <div class="invoice-info">
-          <div class="section-title">Invoice Details:</div>
-          <div class="info-row">
-            <span class="label">Invoice #:</span> ${invoice.invoiceNumber}
-          </div>
-          <div class="info-row">
-            <span class="label">Date:</span> ${invoice.invoiceDate ? new Date(invoice.invoiceDate).toLocaleDateString() : 'N/A'}
-          </div>
-          <div class="info-row">
-            <span class="label">Due Date:</span> ${invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : 'N/A'}
-          </div>
-          <div class="info-row">
-            <span class="label">Status:</span> 
-            <span class="status-badge status-${invoice.status}">${invoice.status?.charAt(0).toUpperCase() + invoice.status?.slice(1)}</span>
-          </div>
+      <div class="invoice-info">
+        <div class="section-title">Invoice Details:</div>
+        <div class="info-row">
+          <span class="label">Invoice #:</span> ${invoice.invoiceNumber}
+        </div>
+        <div class="info-row">
+          <span class="label">Date:</span> ${invoice.createdAt ? new Date(invoice.createdAt).toLocaleDateString() : 'N/A'}
+        </div>
+        <div class="info-row">
+          <span class="label">Due Date:</span> ${invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : 'N/A'}
+        </div>
+        <div class="info-row">
+          <span class="label">Status:</span> 
+          <span class="status-badge status-${invoice.status}">${invoice.status?.charAt(0).toUpperCase() + invoice.status?.slice(1)}</span>
         </div>
       </div>
+    </div>
 
-      <table class="items-table">
-        <thead>
+    <table class="items-table">
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th class="amount-column">Quantity</th>
+          <th class="amount-column">Unit Price (₹)</th>
+          <th class="amount-column">Amount (₹)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${invoice.items?.map(item => `
           <tr>
-            <th>Description</th>
-            <th class="amount-column">Quantity</th>
-            <th class="amount-column">Unit Price (₹)</th>
-            <th class="amount-column">Amount (₹)</th>
+            <td>${item.description || 'N/A'}</td>
+            <td class="amount-column">${item.quantity || 0}</td>
+            <td class="amount-column">${item.unitPrice?.toLocaleString() || '0'}</td>
+            <td class="amount-column">${item.amount?.toLocaleString() || '0'}</td>
           </tr>
-        </thead>
-        <tbody>
-          ${invoice.items?.map(item => `
-            <tr>
-              <td>${item.description || 'N/A'}</td>
-              <td class="amount-column">${item.quantity || 0}</td>
-              <td class="amount-column">${item.unitPrice?.toLocaleString() || '0'}</td>
-              <td class="amount-column">${item.amount?.toLocaleString() || '0'}</td>
-            </tr>
-          `).join('') || '<tr><td colspan="4" style="text-align: center;">No items</td></tr>'}
-        </tbody>
-      </table>
+        `).join('') || '<tr><td colspan="4" style="text-align: center;">No items</td></tr>'}
+      </tbody>
+    </table>
 
-      <div class="summary">
-        <div class="summary-row">
-          <span class="label">Subtotal:</span> ₹${invoice.subtotal?.toLocaleString() || '0'}
-        </div>
-        <div class="summary-row">
-          <span class="label">Tax (${invoice.taxRate || 0}%):</span> ₹${invoice.taxAmount?.toLocaleString() || '0'}
-        </div>
-        ${invoice.discount > 0 ? `
-          <div class="summary-row">
-            <span class="label">Discount:</span> -₹${invoice.discount?.toLocaleString() || '0'}
-          </div>
-        ` : ''}
-        <div class="summary-row total">
-          <span class="label">Total Amount:</span> ₹${invoice.totalAmount?.toLocaleString() || '0'}
-        </div>
+    <div class="summary">
+      <div class="summary-row">
+        <span class="label">Subtotal:</span> ₹${invoice.totalAmount?.toLocaleString() || '0'}
       </div>
+      <div class="summary-row total">
+        <span class="label">Total Amount:</span> ₹${invoice.totalAmount?.toLocaleString() || '0'}
+      </div>
+    </div>
 
       ${invoice.notes ? `
         <div style="margin-top: 30px;">
@@ -426,17 +417,16 @@ export default function InvoicePdfGenerator() {
                 </h2>
                 <div className="space-y-2">
                   <p><span className="font-medium">Invoice #:</span> <span className="font-mono text-blue-600">{invoice.invoiceNumber}</span></p>
-                  <p><span className="font-medium">Date:</span> {invoice.invoiceDate ? new Date(invoice.invoiceDate).toLocaleDateString() : 'N/A'}</p>
+                  <p><span className="font-medium">Date:</span> {invoice.createdAt ? new Date(invoice.createdAt).toLocaleDateString() : 'N/A'}</p>
                   <p><span className="font-medium">Due Date:</span> {invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : 'N/A'}</p>
                   <p>
-                    <span className="font-medium">Status:</span> 
-                    <span className={`ml-2 px-3 py-1 rounded-full text-xs font-medium ${
-                      invoice.status === 'paid' 
-                        ? 'bg-green-100 text-green-800' 
-                        : invoice.status === 'pending'
+                    <span className="font-medium">Status:</span>
+                    <span className={`ml-2 px-3 py-1 rounded-full text-xs font-medium ${invoice.status === 'paid'
+                      ? 'bg-green-100 text-green-800'
+                      : invoice.status === 'pending'
                         ? 'bg-yellow-100 text-yellow-800'
                         : 'bg-red-100 text-red-800'
-                    }`}>
+                      }`}>
                       {invoice.status?.charAt(0).toUpperCase() + invoice.status?.slice(1)}
                     </span>
                   </p>
@@ -466,12 +456,12 @@ export default function InvoicePdfGenerator() {
                         <td className="border border-gray-300 px-4 py-3 text-right font-medium">{item.amount?.toLocaleString() || '0'}</td>
                       </tr>
                     )) || (
-                      <tr>
-                        <td colSpan="4" className="border border-gray-300 px-4 py-3 text-center text-gray-500">
-                          No items
-                        </td>
-                      </tr>
-                    )}
+                        <tr>
+                          <td colSpan="4" className="border border-gray-300 px-4 py-3 text-center text-gray-500">
+                            No items
+                          </td>
+                        </tr>
+                      )}
                   </tbody>
                 </table>
               </div>

@@ -31,6 +31,9 @@ import PaymentProcessing from './pages/receptionist/billing/PaymentProcessing'
 import PaymentHistory from './pages/receptionist/billing/PaymentHistory'
 import InvoicePdfGenerator from './pages/receptionist/billing/InvoicePdfGenerator'
 import Reports from './pages/receptionist/billing/Reports'
+import AdminDashboard from './pages/admin/AdminDashboard'
+import MasterDashboard from './pages/admin/MasterDashboard'
+import Patients from './pages/receptionist/patients/Patients'
 
 function App() {
   return (
@@ -40,7 +43,7 @@ function App() {
       <Route path="/signup" element={<Signup />} />
       <Route path="/signup/:role" element={<Signup />} />
       <Route path="/queue" element={<TokenDisplay />} />
-      
+
       {/* Doctor Routes */}
       <Route path="/doctor" element={
         <ProtectedRoute requiredRole="doctor">
@@ -57,7 +60,7 @@ function App() {
           <TokenQueue />
         </ProtectedRoute>
       } />
-      
+
       {/* Doctor Prescription Routes */}
       <Route path="/doctor/prescriptions" element={
         <ProtectedRoute requiredRole="doctor">
@@ -89,7 +92,7 @@ function App() {
           <Medicines />
         </ProtectedRoute>
       } />
-      
+
       {/* Receptionist Routes */}
       <Route path="/receptionist" element={
         <ProtectedRoute requiredRole="receptionist">
@@ -106,7 +109,12 @@ function App() {
           <TokenManagement />
         </ProtectedRoute>
       } />
-      
+      <Route path="/receptionist/patients" element={
+        <ProtectedRoute requiredRole="receptionist">
+          <Patients />
+        </ProtectedRoute>
+      } />
+
       {/* Receptionist Prescription Routes */}
       <Route path="/receptionist/prescriptions" element={
         <ProtectedRoute requiredRole="receptionist">
@@ -118,7 +126,7 @@ function App() {
           <ReceptionistViewPrescription />
         </ProtectedRoute>
       } />
-      
+
       {/* Receptionist Billing Routes */}
       <Route path="/receptionist/billing" element={
         <ProtectedRoute requiredRole="receptionist">
@@ -168,6 +176,20 @@ function App() {
 
       <Route path="/forgot-password" element={<ForgotPasswordForm />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
+
+      {/* Admin Routes */}
+      <Route path="/admin" element={
+        <ProtectedRoute requiredRole="admin">
+          <AdminDashboard />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/master" element={
+        <ProtectedRoute requiredRole="super_admin">
+          <MasterDashboard />
+        </ProtectedRoute>
+      } />
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

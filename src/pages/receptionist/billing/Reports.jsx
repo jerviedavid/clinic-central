@@ -1,18 +1,16 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
-import { db } from '../../../firebase/config'
-import { 
-  ArrowLeft, 
-  Download, 
-  BarChart3, 
-  TrendingUp, 
-  DollarSign, 
-  FileText, 
-  Calendar, 
-  User, 
-  CreditCard, 
-  Banknote, 
+import {
+  ArrowLeft,
+  Download,
+  BarChart3,
+  TrendingUp,
+  DollarSign,
+  FileText,
+  Calendar,
+  User,
+  CreditCard,
+  Banknote,
   Globe,
   CheckCircle,
   Clock,
@@ -22,6 +20,7 @@ import {
   PieChart,
   Activity
 } from 'lucide-react'
+import api from '../../../utils/api'
 
 export default function Reports() {
   const [loading, setLoading] = useState(true)
@@ -38,35 +37,13 @@ export default function Reports() {
 
   const fetchData = async () => {
     try {
-      // Fetch invoices
-      const invoicesRef = collection(db, 'invoices')
-      const invoicesQuery = query(invoicesRef, orderBy('createdAt', 'desc'))
-      
-      const invoicesUnsubscribe = onSnapshot(invoicesQuery, (snapshot) => {
-        const invoicesData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }))
-        setInvoices(invoicesData)
-      })
-
-      // Fetch payments
-      const paymentsRef = collection(db, 'payments')
-      const paymentsQuery = query(paymentsRef, orderBy('processedAt', 'desc'))
-      
-      const paymentsUnsubscribe = onSnapshot(paymentsQuery, (snapshot) => {
-        const paymentsData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }))
-        setPayments(paymentsData)
-        setLoading(false)
-      })
-
-      return () => {
-        invoicesUnsubscribe()
-        paymentsUnsubscribe()
-      }
+      const [invoicesRes, paymentsRes] = await Promise.all([
+        api.get('/invoices'),
+        api.get('/payments')
+      ]);
+      setInvoices(invoicesRes.data);
+      setPayments(paymentsRes.data);
+      setLoading(false);
     } catch (error) {
       console.error('Error fetching data:', error)
       setLoading(false)
@@ -85,22 +62,22 @@ export default function Reports() {
     switch (dateRange) {
       case 'today':
         filteredInvoices = filteredInvoices.filter(invoice => {
-          const invoiceDate = invoice.createdAt?.toDate?.() || new Date(invoice.createdAt)
+          const invoiceDate = new Date(invoice.createdAt)
           return invoiceDate >= startOfDay
         })
         filteredPayments = filteredPayments.filter(payment => {
-          const paymentDate = payment.processedAt?.toDate?.() || new Date(payment.processedAt)
+          const paymentDate = new Date(payment.processedAt)
           return paymentDate >= startOfDay
         })
         break
       case 'week': {
         const weekAgo = new Date(startOfDay.getTime() - 7 * 24 * 60 * 60 * 1000)
         filteredInvoices = filteredInvoices.filter(invoice => {
-          const invoiceDate = invoice.createdAt?.toDate?.() || new Date(invoice.createdAt)
+          const invoiceDate = new Date(invoice.createdAt)
           return invoiceDate >= weekAgo
         })
         filteredPayments = filteredPayments.filter(payment => {
-          const paymentDate = payment.processedAt?.toDate?.() || new Date(payment.processedAt)
+          const paymentDate = new Date(payment.processedAt)
           return paymentDate >= weekAgo
         })
         break
@@ -108,11 +85,11 @@ export default function Reports() {
       case 'month': {
         const monthAgo = new Date(startOfDay.getTime() - 30 * 24 * 60 * 60 * 1000)
         filteredInvoices = filteredInvoices.filter(invoice => {
-          const invoiceDate = invoice.createdAt?.toDate?.() || new Date(invoice.createdAt)
+          const invoiceDate = new Date(invoice.createdAt)
           return invoiceDate >= monthAgo
         })
         filteredPayments = filteredPayments.filter(payment => {
-          const paymentDate = payment.processedAt?.toDate?.() || new Date(payment.processedAt)
+          const paymentDate = new Date(payment.processedAt)
           return paymentDate >= monthAgo
         })
         break
@@ -120,11 +97,11 @@ export default function Reports() {
       case 'quarter': {
         const quarterAgo = new Date(startOfDay.getTime() - 90 * 24 * 60 * 60 * 1000)
         filteredInvoices = filteredInvoices.filter(invoice => {
-          const invoiceDate = invoice.createdAt?.toDate?.() || new Date(invoice.createdAt)
+          const invoiceDate = new Date(invoice.createdAt)
           return invoiceDate >= quarterAgo
         })
         filteredPayments = filteredPayments.filter(payment => {
-          const paymentDate = payment.processedAt?.toDate?.() || new Date(payment.processedAt)
+          const paymentDate = new Date(payment.processedAt)
           return paymentDate >= quarterAgo
         })
         break
@@ -132,11 +109,11 @@ export default function Reports() {
       case 'year': {
         const yearAgo = new Date(startOfDay.getTime() - 365 * 24 * 60 * 60 * 1000)
         filteredInvoices = filteredInvoices.filter(invoice => {
-          const invoiceDate = invoice.createdAt?.toDate?.() || new Date(invoice.createdAt)
+          const invoiceDate = new Date(invoice.createdAt)
           return invoiceDate >= yearAgo
         })
         filteredPayments = filteredPayments.filter(payment => {
-          const paymentDate = payment.processedAt?.toDate?.() || new Date(payment.processedAt)
+          const paymentDate = new Date(payment.processedAt)
           return paymentDate >= yearAgo
         })
         break
@@ -171,26 +148,26 @@ export default function Reports() {
   // Calculate statistics
   const calculateStats = () => {
     const { filteredInvoices, filteredPayments } = getFilteredData()
-    
+
     const totalInvoices = filteredInvoices.length
     const totalAmount = filteredInvoices.reduce((sum, invoice) => sum + (invoice.totalAmount || 0), 0)
     const paidInvoices = filteredInvoices.filter(invoice => invoice.status === 'paid').length
     const pendingInvoices = filteredInvoices.filter(invoice => invoice.status === 'pending').length
     const overdueInvoices = filteredInvoices.filter(invoice => invoice.status === 'overdue').length
-    
+
     const totalPayments = filteredPayments.length
     const totalPaymentAmount = filteredPayments.reduce((sum, payment) => sum + (payment.amount || 0), 0)
-    
+
     // Payment method breakdown
     const paymentMethods = filteredPayments.reduce((acc, payment) => {
       acc[payment.method] = (acc[payment.method] || 0) + (payment.amount || 0)
       return acc
     }, {})
-    
+
     // Monthly trends
     const monthlyData = {}
     filteredInvoices.forEach(invoice => {
-      const date = invoice.createdAt?.toDate?.() || new Date(invoice.createdAt)
+      const date = new Date(invoice.createdAt)
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
       monthlyData[monthKey] = (monthlyData[monthKey] || 0) + (invoice.totalAmount || 0)
     })
@@ -213,7 +190,7 @@ export default function Reports() {
   const downloadReport = () => {
     const stats = calculateStats()
     const { filteredInvoices, filteredPayments } = getFilteredData()
-    
+
     const reportData = {
       reportGenerated: new Date().toLocaleString(),
       dateRange: dateRange,
@@ -226,7 +203,7 @@ export default function Reports() {
       invoices: filteredInvoices,
       payments: filteredPayments
     }
-    
+
     const blob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -241,7 +218,7 @@ export default function Reports() {
   // Export to CSV
   const exportToCSV = () => {
     const { filteredInvoices, filteredPayments } = getFilteredData()
-    
+
     // Invoices CSV
     const invoicesCSV = [
       ['Invoice Number', 'Patient Name', 'Patient Phone', 'Total Amount', 'Status', 'Created Date', 'Due Date'],
@@ -255,7 +232,7 @@ export default function Reports() {
         invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString() : ''
       ])
     ].map(row => row.join(',')).join('\n')
-    
+
     // Payments CSV
     const paymentsCSV = [
       ['Invoice Number', 'Patient Name', 'Amount', 'Payment Method', 'Reference', 'Processed Date'],
@@ -268,28 +245,28 @@ export default function Reports() {
         payment.processedAt?.toDate?.()?.toLocaleDateString() || ''
       ])
     ].map(row => row.join(',')).join('\n')
-    
+
     // Download both files
     const invoicesBlob = new Blob([invoicesCSV], { type: 'text/csv' })
     const paymentsBlob = new Blob([paymentsCSV], { type: 'text/csv' })
-    
+
     const invoicesUrl = URL.createObjectURL(invoicesBlob)
     const paymentsUrl = URL.createObjectURL(paymentsBlob)
-    
+
     const invoicesLink = document.createElement('a')
     invoicesLink.href = invoicesUrl
     invoicesLink.download = `invoices-${dateRange}-${new Date().toISOString().split('T')[0]}.csv`
     document.body.appendChild(invoicesLink)
     invoicesLink.click()
     document.body.removeChild(invoicesLink)
-    
+
     const paymentsLink = document.createElement('a')
     paymentsLink.href = paymentsUrl
     paymentsLink.download = `payments-${dateRange}-${new Date().toISOString().split('T')[0]}.csv`
     document.body.appendChild(paymentsLink)
     paymentsLink.click()
     document.body.removeChild(paymentsLink)
-    
+
     URL.revokeObjectURL(invoicesUrl)
     URL.revokeObjectURL(paymentsUrl)
   }
@@ -327,7 +304,7 @@ export default function Reports() {
               <p className="text-sm text-slate-400">Financial analytics and insights</p>
             </div>
           </div>
-          
+
           {/* Export Buttons */}
           <div className="flex space-x-3">
             <button

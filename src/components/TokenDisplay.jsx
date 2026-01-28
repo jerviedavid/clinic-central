@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
-import { collection, onSnapshot, query, where } from 'firebase/firestore'
-import { db } from '../firebase/config'
+import api from '../utils/api'
 import { Hash, Clock, User, AlertCircle } from 'lucide-react'
 
 export default function TokenDisplay() {
@@ -12,45 +11,42 @@ export default function TokenDisplay() {
   useEffect(() => {
     if (!selectedDate) return
 
-    setLoading(true)
-    const appointmentsRef = collection(db, 'appointments')
-    const q = query(
-      appointmentsRef,
-      where('appointmentDate', '==', selectedDate),
-      where('status', 'in', ['token_generated', 'in_progress'])
-    )
-    
-               const unsubscribe = onSnapshot(q, (snapshot) => {
-        const appointmentsData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }))
-        
+    const fetchData = async () => {
+      try {
+        const response = await api.get('/appointments')
+        const appointmentsData = response.data.filter(apt =>
+          apt.appointmentDate === selectedDate &&
+          ['token_generated', 'in_progress'].includes(apt.status)
+        )
+
         // Sort by token number
         const sortedAppointments = appointmentsData.sort((a, b) => {
           if (a.tokenNumber && b.tokenNumber) {
-            return a.tokenNumber - b.tokenNumber
+            return Number(a.tokenNumber) - Number(b.tokenNumber)
           }
           if (a.tokenNumber) return -1
           if (b.tokenNumber) return 1
           return 0
         })
-        
+
         // Find current token (in_progress)
         const current = sortedAppointments.find(apt => apt.status === 'in_progress')
         setCurrentToken(current)
-        
+
         // Find next token (first token_generated)
         const next = sortedAppointments.find(apt => apt.status === 'token_generated')
         setNextToken(next)
-        
+
         setLoading(false)
-      }, (error) => {
+      } catch (error) {
         console.error('Error fetching appointments:', error)
         setLoading(false)
-      })
+      }
+    }
 
-    return () => unsubscribe()
+    fetchData()
+    const interval = setInterval(fetchData, 10000);
+    return () => clearInterval(interval);
   }, [selectedDate])
 
   if (loading) {
@@ -76,11 +72,11 @@ export default function TokenDisplay() {
             <h1 className="text-3xl font-bold">Patient Queue</h1>
           </div>
           <p className="text-slate-400">
-            {new Date(selectedDate).toLocaleDateString('en-US', { 
-              weekday: 'long', 
-              year: 'numeric', 
-              month: 'long', 
-              day: 'numeric' 
+            {new Date(selectedDate).toLocaleDateString('en-US', {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric'
             })}
           </p>
         </div>

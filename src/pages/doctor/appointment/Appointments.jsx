@@ -3,12 +3,12 @@ import { useAuth } from '../../../hooks/useAuth'
 import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import LogoutButton from '../../../components/LogoutButton'
-import { 
-  User, 
-  Calendar, 
-  Clock, 
-  Phone, 
-  Mail, 
+import {
+  User,
+  Calendar,
+  Clock,
+  Phone,
+  Mail,
   Check,
   X,
   AlertTriangle,
@@ -18,8 +18,7 @@ import {
   CalendarCheck,
   ArrowLeft
 } from 'lucide-react'
-import { collection, onSnapshot, query, orderBy, updateDoc, doc, getDoc } from 'firebase/firestore'
-import { db } from '../../../firebase/config'
+import api from '../../../utils/api'
 
 export default function DoctorAppointments() {
   const { currentUser } = useAuth()
@@ -28,101 +27,35 @@ export default function DoctorAppointments() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [viewMode, setViewMode] = useState('today') // today, week, month
   const [searchTerm, setSearchTerm] = useState('')
-      const [selectedAppointment, setSelectedAppointment] = useState(null)
+  const [selectedAppointment, setSelectedAppointment] = useState(null)
   const [showPatientDetails, setShowPatientDetails] = useState(false)
-
-  const [doctorName, setDoctorName] = useState('')
-
-  // Fetch doctor's name from staffData collection
-  useEffect(() => {
-    if (!currentUser) return
-
-    const fetchDoctorName = async () => {
-      try {
-        const userDocRef = doc(db, 'staffData', currentUser.uid)
-        const userDoc = await getDoc(userDocRef)
-        
-        if (userDoc.exists()) {
-          const userData = userDoc.data()
-          // Use fullName from staffData, fallback to displayName, then to 'Unknown Doctor'
-          const name = userData.fullName || currentUser.displayName || 'Unknown Doctor'
-          setDoctorName(name)
-        } else {
-          // Fallback to displayName if no staffData document exists
-          setDoctorName(currentUser.displayName || 'Unknown Doctor')
-        }
-      } catch (error) {
-        console.error('Error fetching doctor name:', error)
-        setDoctorName(currentUser.displayName || 'Unknown Doctor')
-      }
-    }
-
-    fetchDoctorName()
-  }, [currentUser])
 
   // Fetch appointments for the logged-in doctor
   useEffect(() => {
-    if (!currentUser || !doctorName) return
+    if (!currentUser) return
 
-    toast.success('Loading your appointments...')
-    
-    // Fetch all appointments and filter client-side to handle name variations
-    
-    const appointmentsRef = collection(db, 'appointments')
-    const q = query(appointmentsRef, orderBy('createdAt', 'desc'))
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const allAppointments = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-      
-      // Filter appointments for this doctor with multiple name variations
-      const doctorAppointments = allAppointments.filter(appointment => {
-        const appointmentDoctorName = appointment.doctorName || ''
-        const currentDoctorName = doctorName || ''
-        
-        // Try exact match first
-        if (appointmentDoctorName === currentDoctorName) {
-          return true
-        }
-        
-        // Try case-insensitive match
-        if (appointmentDoctorName.toLowerCase() === currentDoctorName.toLowerCase()) {
-          return true
-        }
-        
-        // Try matching without "Dr." prefix
-        const cleanAppointmentName = appointmentDoctorName.replace(/^Dr\.\s*/i, '').trim()
-        const cleanCurrentName = currentDoctorName.replace(/^Dr\.\s*/i, '').trim()
-        if (cleanAppointmentName === cleanCurrentName) {
-          return true
-        }
-        
-        // Try matching with "Dr." prefix
-        const withDrAppointmentName = appointmentDoctorName.startsWith('Dr.') ? appointmentDoctorName : `Dr. ${appointmentDoctorName}`
-        const withDrCurrentName = currentDoctorName.startsWith('Dr.') ? currentDoctorName : `Dr. ${currentDoctorName}`
-        if (withDrAppointmentName === withDrCurrentName) {
-          return true
-        }
-        
-        return false
-      })
-      
-      setAppointments(doctorAppointments)
-      
-      if (doctorAppointments.length > 0) {
-        toast.success(`Loaded ${doctorAppointments.length} appointments`)
-      } else {
-        toast.success('No appointments found for you')
+    const fetchData = async () => {
+      try {
+        const response = await api.get('/appointments')
+
+        // Filter appointments for this doctor
+        const doctorAppointments = response.data.filter(appointment => {
+          const apptDocName = (appointment.doctorName || '').toLowerCase()
+          const currDocName = (currentUser.fullName || '').toLowerCase()
+          return apptDocName.includes(currDocName) || currDocName.includes(apptDocName)
+        })
+
+        setAppointments(doctorAppointments)
+      } catch (error) {
+        console.error('Error fetching appointments:', error)
+        toast.error('Error loading appointments')
       }
-    }, (error) => {
-      console.error('Error fetching appointments:', error)
-      toast.error('Error loading appointments')
-    })
+    }
 
-    return () => unsubscribe()
-  }, [currentUser, doctorName])
+    fetchData()
+    const interval = setInterval(fetchData, 10000)
+    return () => clearInterval(interval)
+  }, [currentUser])
 
   useEffect(() => {
     let filtered = appointments
@@ -150,59 +83,46 @@ export default function DoctorAppointments() {
 
     // Filter by search term
     if (searchTerm) {
-      filtered = filtered.filter(apt => 
-        apt.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        apt.appointmentType.toLowerCase().includes(searchTerm.toLowerCase())
+      filtered = filtered.filter(apt =>
+        (apt.patientName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (apt.appointmentType || '').toLowerCase().includes(searchTerm.toLowerCase())
       )
     }
 
     setFilteredAppointments(filtered)
   }, [appointments, selectedDate, viewMode, searchTerm])
 
-  const handleViewPatientDetails = (appointment) => {
-    setSelectedAppointment(appointment)
-    setShowPatientDetails(true)
-    toast.success('Patient details opened!')
-  }
-
   const handleSearchChange = (e) => {
-    const value = e.target.value
-    setSearchTerm(value)
-    if (value.trim()) {
-      toast.success(`Searching for: "${value}"`)
-    }
+    setSearchTerm(e.target.value)
   }
 
   const handleViewModeChange = (mode) => {
     setViewMode(mode)
-    toast.success(`Viewing appointments: ${mode}`)
   }
 
   const handleCompleteAppointment = async (appointmentId) => {
     try {
-      const appointmentRef = doc(db, 'appointments', appointmentId)
-      await updateDoc(appointmentRef, {
-        status: 'completed',
-        updatedAt: new Date().toISOString()
+      await api.patch(`/appointments/${appointmentId}`, {
+        status: 'completed'
       })
       toast.success('Appointment marked as completed!')
+      setAppointments(prev => prev.map(a => a.id === appointmentId ? { ...a, status: 'completed' } : a))
     } catch (error) {
       console.error('Error completing appointment:', error)
-      toast.error(`Error completing appointment: ${error.message}`)
+      toast.error('Error completing appointment')
     }
   }
 
   const handleCancelAppointment = async (appointmentId) => {
     try {
-      const appointmentRef = doc(db, 'appointments', appointmentId)
-      await updateDoc(appointmentRef, {
-        status: 'cancelled',
-        updatedAt: new Date().toISOString()
+      await api.patch(`/appointments/${appointmentId}`, {
+        status: 'cancelled'
       })
       toast.success('Appointment cancelled successfully!')
+      setAppointments(prev => prev.map(a => a.id === appointmentId ? { ...a, status: 'cancelled' } : a))
     } catch (error) {
       console.error('Error cancelling appointment:', error)
-      toast.error(`Error cancelling appointment: ${error.message}`)
+      toast.error('Error cancelling appointment')
     }
   }
 
@@ -216,15 +136,15 @@ export default function DoctorAppointments() {
     }
   }
 
-     const getStatusIcon = (status) => {
-     switch (status) {
-       case 'scheduled': return <Clock className="w-4 h-4" />
-       case 'completed': return <Check className="w-4 h-4" />
-       case 'cancelled': return <X className="w-4 h-4" />
-       case 'rescheduled': return <Calendar className="w-4 h-4" />
-       default: return <AlertTriangle className="w-4 h-4" />
-     }
-   }
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case 'scheduled': return <Clock className="w-4 h-4" />
+      case 'completed': return <Check className="w-4 h-4" />
+      case 'cancelled': return <X className="w-4 h-4" />
+      case 'rescheduled': return <Calendar className="w-4 h-4" />
+      default: return <AlertTriangle className="w-4 h-4" />
+    }
+  }
 
   const getAppointmentTypeColor = (type) => {
     switch (type) {
@@ -237,42 +157,42 @@ export default function DoctorAppointments() {
   }
 
   const todayAppointments = filteredAppointments.filter(apt => apt.appointmentDate === selectedDate)
-  const upcomingAppointments = filteredAppointments.filter(apt => 
+  const upcomingAppointments = filteredAppointments.filter(apt =>
     apt.appointmentDate > selectedDate && apt.status === 'scheduled'
   )
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 text-white">
-             {/* Header */}
-       <header className="bg-white/5 backdrop-blur-xl border-b border-white/10 p-4">
-         <div className="max-w-7xl mx-auto flex justify-between items-center">
-           <div className="flex items-center space-x-3">
-             <Link 
-               to="/doctor"
-               className="flex items-center space-x-2 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors"
-             >
-               <ArrowLeft className="w-4 h-4" />
-               <span className="text-sm font-medium">Back to Dashboard</span>
-             </Link>
-             <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center">
-               <User className="w-6 h-6 text-blue-400" />
-             </div>
-             <div>
-               <h1 className="text-xl font-bold">Patient Appointments</h1>
-               <p className="text-sm text-slate-400">Welcome, {doctorName || 'Doctor'}</p>
-             </div>
-           </div>
-           <LogoutButton />
-         </div>
-       </header>
+      {/* Header */}
+      <header className="bg-white/5 backdrop-blur-xl border-b border-white/10 p-4">
+        <div className="max-w-7xl mx-auto flex justify-between items-center">
+          <div className="flex items-center space-x-3">
+            <Link
+              to="/doctor"
+              className="flex items-center space-x-2 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span className="text-sm font-medium">Back to Dashboard</span>
+            </Link>
+            <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center">
+              <User className="w-6 h-6 text-blue-400" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">Patient Appointments</h1>
+              <p className="text-sm text-slate-400">Welcome, {currentUser?.fullName || 'Doctor'}</p>
+            </div>
+          </div>
+          <LogoutButton />
+        </div>
+      </header>
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto p-6">
         {/* Controls */}
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
           <div className="flex flex-col md:flex-row gap-4 w-full lg:w-auto">
-                         <div className="relative">
-               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
               <input
                 type="text"
                 placeholder="Search patients..."
@@ -281,44 +201,41 @@ export default function DoctorAppointments() {
                 className="pl-10 pr-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-slate-400 focus:border-blue-400 focus:outline-none"
               />
             </div>
-            
+
             <div className="flex space-x-2">
               <button
                 onClick={() => handleViewModeChange('today')}
-                className={`px-3 py-2 rounded-lg transition-colors flex items-center space-x-2 ${
-                  viewMode === 'today' 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-white/5 text-slate-300 hover:bg-white/10'
-                }`}
+                className={`px-3 py-2 rounded-lg transition-colors flex items-center space-x-2 ${viewMode === 'today'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-white/5 text-slate-300 hover:bg-white/10'
+                  }`}
               >
-                 <CalendarDays className="w-4 h-4" />
+                <CalendarDays className="w-4 h-4" />
                 <span>Today</span>
               </button>
               <button
                 onClick={() => handleViewModeChange('week')}
-                className={`px-3 py-2 rounded-lg transition-colors flex items-center space-x-2 ${
-                  viewMode === 'week' 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-white/5 text-slate-300 hover:bg-white/10'
-                }`}
+                className={`px-3 py-2 rounded-lg transition-colors flex items-center space-x-2 ${viewMode === 'week'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-white/5 text-slate-300 hover:bg-white/10'
+                  }`}
               >
-                                 <CalendarRange className="w-4 h-4" />
+                <CalendarRange className="w-4 h-4" />
                 <span>Week</span>
               </button>
               <button
                 onClick={() => handleViewModeChange('month')}
-                className={`px-3 py-2 rounded-lg transition-colors flex items-center space-x-2 ${
-                  viewMode === 'month' 
-                    ? 'bg-blue-500 text-white' 
-                    : 'bg-white/5 text-slate-300 hover:bg-white/10'
-                }`}
+                className={`px-3 py-2 rounded-lg transition-colors flex items-center space-x-2 ${viewMode === 'month'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-white/5 text-slate-300 hover:bg-white/10'
+                  }`}
               >
-          <CalendarCheck className="w-4 h-4" />
+                <CalendarCheck className="w-4 h-4" />
                 <span>Month</span>
               </button>
             </div>
           </div>
-          
+
           <input
             type="date"
             value={selectedDate}
@@ -330,13 +247,13 @@ export default function DoctorAppointments() {
         {/* Today's Appointments */}
         <div className="mb-8">
           <h2 className="text-xl font-bold mb-4 flex items-center space-x-2">
-                         <Calendar className="w-5 h-5 text-blue-400" />
+            <Calendar className="w-5 h-5 text-blue-400" />
             <span>Today's Appointments ({todayAppointments.length})</span>
           </h2>
-          
+
           {todayAppointments.length === 0 ? (
             <div className="bg-white/5 border border-white/10 rounded-2xl p-8 text-center">
-                  <Calendar className="w-16 h-16 text-slate-400 mx-auto mb-4" />
+              <Calendar className="w-16 h-16 text-slate-400 mx-auto mb-4" />
               <p className="text-slate-400">No appointments scheduled for today</p>
             </div>
           ) : (
@@ -358,36 +275,36 @@ export default function DoctorAppointments() {
                       </span>
                     </div>
                   </div>
-                  
+
                   <div className="space-y-3 mb-4">
-                                         <div className="flex items-center space-x-2">
-                       <Clock className="w-4 h-4 text-slate-400" />
-                       <span className="text-slate-300">{appointment.appointmentTime}</span>
-                     </div>
-                     <div className="flex items-center space-x-2">
-                       <Phone className="w-4 h-4 text-slate-400" />
-                       <span className="text-slate-300">{appointment.patientPhone}</span>
-                     </div>
-                     <div className="flex items-center space-x-2">
-                       <Mail className="w-4 h-4 text-slate-400" />
-                       <span className="text-slate-300">{appointment.patientEmail}</span>
-                     </div>
+                    <div className="flex items-center space-x-2">
+                      <Clock className="w-4 h-4 text-slate-400" />
+                      <span className="text-slate-300">{appointment.appointmentTime}</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Phone className="w-4 h-4 text-slate-400" />
+                      <span className="text-slate-300">{appointment.patientPhone}</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Mail className="w-4 h-4 text-slate-400" />
+                      <span className="text-slate-300">{appointment.patientEmail}</span>
+                    </div>
                   </div>
-                  
+
                   {appointment.symptoms && (
                     <div className="mb-4">
                       <h4 className="text-sm font-medium text-slate-300 mb-1">Symptoms:</h4>
                       <p className="text-sm text-slate-400">{appointment.symptoms}</p>
                     </div>
                   )}
-                  
+
                   {appointment.notes && (
                     <div className="mb-4">
                       <h4 className="text-sm font-medium text-slate-300 mb-1">Notes:</h4>
                       <p className="text-sm text-slate-400">{appointment.notes}</p>
                     </div>
                   )}
-                  
+
                   <div className="flex space-x-2">
                     <button
                       onClick={() => handleViewPatientDetails(appointment)}
@@ -397,18 +314,18 @@ export default function DoctorAppointments() {
                     </button>
                     {appointment.status === 'scheduled' && (
                       <>
-                                                 <button
-                           onClick={() => handleCompleteAppointment(appointment.id)}
-                           className="px-3 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm transition-colors"
-                         >
-                           <Check className="w-4 h-4" />
-                         </button>
-                         <button
-                           onClick={() => handleCancelAppointment(appointment.id)}
-                           className="px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm transition-colors"
-                         >
-                           <X className="w-4 h-4" />
-                         </button>
+                        <button
+                          onClick={() => handleCompleteAppointment(appointment.id)}
+                          className="px-3 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm transition-colors"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleCancelAppointment(appointment.id)}
+                          className="px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </>
                     )}
                   </div>
@@ -422,10 +339,10 @@ export default function DoctorAppointments() {
         {upcomingAppointments.length > 0 && (
           <div>
             <h2 className="text-xl font-bold mb-4 flex items-center space-x-2">
-                             <Calendar className="w-5 h-5 text-green-400" />
+              <Calendar className="w-5 h-5 text-green-400" />
               <span>Upcoming Appointments ({upcomingAppointments.length})</span>
             </h2>
-            
+
             <div className="bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-xl">
               <div className="space-y-4">
                 {upcomingAppointments.slice(0, 5).map((appointment) => (
@@ -465,10 +382,10 @@ export default function DoctorAppointments() {
                 onClick={() => setShowPatientDetails(false)}
                 className="text-slate-400 hover:text-white"
               >
-     <X className="w-6 h-6" />
+                <X className="w-6 h-6" />
               </button>
             </div>
-            
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Patient Information */}
               <div className="space-y-4">

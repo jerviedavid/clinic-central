@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { collection, onSnapshot, query, orderBy, where, updateDoc, doc, addDoc, serverTimestamp } from 'firebase/firestore'
-import { db } from '../../../firebase/config'
-import { 
-  ArrowLeft, 
-  Search, 
-  DollarSign, 
-  CreditCard, 
-  Banknote, 
-  Globe, 
+import {
+  ArrowLeft,
+  Search,
+  DollarSign,
+  CreditCard,
+  Banknote,
+  Globe,
   Receipt,
   CheckCircle,
   Clock,
@@ -20,6 +18,8 @@ import {
   Download,
   Printer
 } from 'lucide-react'
+import api from '../../../utils/api'
+import toast from 'react-hot-toast'
 
 export default function PaymentProcessing() {
   const [invoices, setInvoices] = useState([])
@@ -37,38 +37,23 @@ export default function PaymentProcessing() {
   const [processingPayment, setProcessingPayment] = useState(false)
 
   useEffect(() => {
-    let unsubscribe
-    
-    const fetchInvoices = () => {
+    const fetchInvoices = async () => {
       try {
-        const invoicesRef = collection(db, 'invoices')
-        const q = query(invoicesRef, where('status', 'in', ['pending', 'overdue']), orderBy('createdAt', 'desc'))
-        
-        unsubscribe = onSnapshot(q, (snapshot) => {
-          const invoicesData = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          }))
-          setInvoices(invoicesData)
-          setFilteredInvoices(invoicesData)
-          setLoading(false)
-        }, (error) => {
-          console.error('Error fetching invoices:', error)
-          setLoading(false)
-        })
+        const response = await api.get('/invoices')
+        // Filter for pending and overdue on frontend for now, or could be on backend
+        const pendingInvoices = response.data.filter(inv => ['pending', 'overdue'].includes(inv.status))
+        setInvoices(pendingInvoices)
+        setFilteredInvoices(pendingInvoices)
+        setLoading(false)
       } catch (error) {
         console.error('Error fetching invoices:', error)
         setLoading(false)
       }
     }
-    
+
     fetchInvoices()
-    
-    return () => {
-      if (unsubscribe) {
-        unsubscribe()
-      }
-    }
+    const interval = setInterval(fetchInvoices, 10000);
+    return () => clearInterval(interval);
   }, [])
 
   // Filter invoices based on search
@@ -107,17 +92,16 @@ export default function PaymentProcessing() {
     setProcessingPayment(true)
     try {
       // Update invoice status
-      await updateDoc(doc(db, 'invoices', selectedInvoice.id), {
+      await api.patch(`/invoices/${selectedInvoice.id}`, {
         status: 'paid',
         paymentMethod: paymentData.method,
-        paymentDate: serverTimestamp(),
+        paymentDate: new Date().toISOString(),
         paymentReference: paymentData.reference,
-        paymentNotes: paymentData.notes,
-        updatedAt: serverTimestamp()
+        paymentNotes: paymentData.notes
       })
 
       // Create payment record
-      await addDoc(collection(db, 'payments'), {
+      await api.post('/payments', {
         invoiceId: selectedInvoice.id,
         invoiceNumber: selectedInvoice.invoiceNumber,
         patientName: selectedInvoice.patientName,
@@ -126,12 +110,10 @@ export default function PaymentProcessing() {
         method: paymentData.method,
         reference: paymentData.reference,
         notes: paymentData.notes,
-        processedBy: 'receptionist', // You can get actual user ID here
-        processedAt: serverTimestamp(),
-        status: 'completed'
+        processedBy: 'receptionist'
       })
 
-      alert('Payment processed successfully!')
+      toast.success('Payment processed successfully!')
       setPaymentModal(false)
       setSelectedInvoice(null)
       setPaymentData({
@@ -140,9 +122,14 @@ export default function PaymentProcessing() {
         reference: '',
         notes: ''
       })
+
+      // Refresh list
+      const response = await api.get('/invoices')
+      const pendingInvoices = response.data.filter(inv => ['pending', 'overdue'].includes(inv.status))
+      setInvoices(pendingInvoices)
     } catch (error) {
       console.error('Error processing payment:', error)
-      alert('Error processing payment. Please try again.')
+      toast.error('Error processing payment')
     } finally {
       setProcessingPayment(false)
     }
@@ -165,12 +152,12 @@ export default function PaymentProcessing() {
   // Calculate days overdue
   const getDaysOverdue = (invoice) => {
     if (invoice.status === 'paid') return 0
-    
+
     const dueDate = new Date(invoice.dueDate)
     const today = new Date()
     const diffTime = today - dueDate
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-    
+
     return diffDays > 0 ? diffDays : 0
   }
 
@@ -335,7 +322,7 @@ export default function PaymentProcessing() {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-slate-800 border border-white/10 rounded-2xl p-6 max-w-md w-full mx-4">
             <h2 className="text-xl font-bold mb-4">Process Payment</h2>
-            
+
             {/* Invoice Summary */}
             <div className="bg-white/10 rounded-lg p-4 mb-4">
               <div className="flex justify-between items-center mb-2">
@@ -366,11 +353,10 @@ export default function PaymentProcessing() {
                     <button
                       key={method.value}
                       onClick={() => setPaymentData(prev => ({ ...prev, method: method.value }))}
-                      className={`p-3 rounded-lg border transition-colors ${
-                        paymentData.method === method.value
+                      className={`p-3 rounded-lg border transition-colors ${paymentData.method === method.value
                           ? 'border-cyan-400 bg-cyan-500/20'
                           : 'border-white/20 hover:border-white/40'
-                      }`}
+                        }`}
                     >
                       <Icon className={`w-5 h-5 ${method.color} mx-auto mb-1`} />
                       <span className="text-xs">{method.label}</span>

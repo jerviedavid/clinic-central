@@ -24,3 +24,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Database
+prisma/*.db
+prisma/*.db-journal
+
+# Logs
+*.txt
+*.log

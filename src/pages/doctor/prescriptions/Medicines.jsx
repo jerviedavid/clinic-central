@@ -3,12 +3,12 @@ import { useAuth } from '../../../hooks/useAuth'
 import { Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import LogoutButton from '../../../components/LogoutButton'
-import { 
-  User, 
-  Calendar, 
-  Clock, 
-  Phone, 
-  Mail, 
+import {
+  User,
+  Calendar,
+  Clock,
+  Phone,
+  Mail,
   Plus,
   Search,
   Filter,
@@ -25,8 +25,7 @@ import {
   Package,
   Activity
 } from 'lucide-react'
-import { collection, onSnapshot, query, orderBy, doc, deleteDoc, addDoc, updateDoc } from 'firebase/firestore'
-import { db } from '../../../firebase/config'
+import api from '../../../utils/api'
 
 export default function Medicines() {
   const { currentUser } = useAuth()
@@ -60,32 +59,23 @@ export default function Medicines() {
   useEffect(() => {
     if (!currentUser) return
 
-    setLoading(true)
-    
-    const medicinesRef = collection(db, 'medicines')
-    const q = query(medicinesRef, orderBy('name', 'asc'))
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const medicinesData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }))
-      setMedicines(medicinesData)
-      setFilteredMedicines(medicinesData)
-      setLoading(false)
-      
-      if (medicinesData.length > 0) {
-        toast.success(`Loaded ${medicinesData.length} medicines`)
-      } else {
-        toast.success('No medicines found')
+    const fetchMedicines = async () => {
+      setLoading(true)
+      try {
+        const response = await api.get('/medicines')
+        setMedicines(response.data)
+        setFilteredMedicines(response.data)
+      } catch (error) {
+        console.error('Error fetching medicines:', error)
+        toast.error('Error loading medicines')
+      } finally {
+        setLoading(false)
       }
-    }, (error) => {
-      console.error('Error fetching medicines:', error)
-      toast.error('Error loading medicines')
-      setLoading(false)
-    })
+    }
 
-    return () => unsubscribe()
+    fetchMedicines()
+    const interval = setInterval(fetchMedicines, 10000);
+    return () => clearInterval(interval);
   }, [currentUser])
 
   useEffect(() => {
@@ -152,11 +142,12 @@ export default function Medicines() {
   const handleDeleteMedicine = async (medicineId) => {
     if (window.confirm('Are you sure you want to delete this medicine? This action cannot be undone.')) {
       try {
-        await deleteDoc(doc(db, 'medicines', medicineId))
+        await api.delete(`/medicines/${medicineId}`)
         toast.success('Medicine deleted successfully!')
+        setMedicines(prev => prev.filter(m => m.id !== medicineId))
       } catch (error) {
         console.error('Error deleting medicine:', error)
-        toast.error(`Error deleting medicine: ${error.message}`)
+        toast.error('Error deleting medicine')
       }
     }
   }
@@ -187,13 +178,13 @@ export default function Medicines() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    
+
     if (!validateForm()) {
       return
     }
-    
+
     setLoading(true)
-    
+
     try {
       const medicineData = {
         ...formData,
@@ -202,12 +193,12 @@ export default function Medicines() {
         reorderLevel: parseInt(formData.reorderLevel) || 0,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        createdBy: currentUser.uid
+        createdBy: currentUser.id
       }
-      
+
       if (showEditModal) {
         // Update existing medicine
-        await updateDoc(doc(db, 'medicines', selectedMedicine.id), {
+        await api.patch(`/medicines/${selectedMedicine.id}`, {
           ...medicineData,
           updatedAt: new Date().toISOString()
         })
@@ -215,13 +206,17 @@ export default function Medicines() {
         setShowEditModal(false)
       } else {
         // Create new medicine
-        await addDoc(collection(db, 'medicines'), medicineData)
+        await api.post('/medicines', medicineData)
         toast.success('Medicine created successfully!')
         setShowCreateModal(false)
       }
+
+      // Refresh
+      const response = await api.get('/medicines')
+      setMedicines(response.data)
     } catch (error) {
       console.error('Error saving medicine:', error)
-      toast.error(`Error saving medicine: ${error.message}`)
+      toast.error('Error saving medicine')
     } finally {
       setLoading(false)
     }
@@ -247,12 +242,12 @@ export default function Medicines() {
   }
 
   const categories = [
-    'antibiotics', 'painkillers', 'vitamins', 'diabetes', 'cardiology', 
+    'antibiotics', 'painkillers', 'vitamins', 'diabetes', 'cardiology',
     'dermatology', 'psychiatry', 'respiratory', 'gastroenterology', 'neurology'
   ]
 
   const forms = [
-    'tablet', 'capsule', 'syrup', 'injection', 'cream', 'ointment', 
+    'tablet', 'capsule', 'syrup', 'injection', 'cream', 'ointment',
     'drops', 'inhaler', 'suppository', 'powder'
   ]
 
@@ -262,7 +257,7 @@ export default function Medicines() {
       <header className="bg-white/5 backdrop-blur-xl border-b border-white/10 p-4">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center space-x-3">
-            <Link 
+            <Link
               to="/doctor/prescriptions"
               className="flex items-center space-x-2 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors"
             >
@@ -305,7 +300,7 @@ export default function Medicines() {
                 className="pl-10 pr-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-slate-400 focus:border-blue-400 focus:outline-none"
               />
             </div>
-            
+
             <select
               value={filterCategory}
               onChange={(e) => setFilterCategory(e.target.value)}
@@ -319,7 +314,7 @@ export default function Medicines() {
               ))}
             </select>
           </div>
-          
+
           <div className="text-sm text-slate-400">
             {filteredMedicines.length} of {medicines.length} medicines
           </div>
@@ -356,7 +351,7 @@ export default function Medicines() {
                       </span>
                     </div>
                   </div>
-                  
+
                   <div className="space-y-3 mb-4">
                     <div className="flex items-center space-x-2">
                       <Package className="w-4 h-4 text-slate-400" />
@@ -373,13 +368,13 @@ export default function Medicines() {
                       </div>
                     )}
                   </div>
-                  
+
                   {medicine.description && (
                     <div className="mb-4">
                       <p className="text-sm text-slate-400 line-clamp-2">{medicine.description}</p>
                     </div>
                   )}
-                  
+
                   <div className="flex space-x-2">
                     <button
                       onClick={() => handleEditMedicine(medicine)}
@@ -420,7 +415,7 @@ export default function Medicines() {
                 <X className="w-6 h-6" />
               </button>
             </div>
-            
+
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Basic Information */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -434,7 +429,7 @@ export default function Medicines() {
                     placeholder="Enter medicine name"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Category *</label>
                   <select
@@ -450,7 +445,7 @@ export default function Medicines() {
                     ))}
                   </select>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Strength *</label>
                   <input
@@ -461,7 +456,7 @@ export default function Medicines() {
                     placeholder="e.g., 500mg, 10ml"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Form *</label>
                   <select
@@ -477,7 +472,7 @@ export default function Medicines() {
                     ))}
                   </select>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Manufacturer *</label>
                   <input
@@ -488,7 +483,7 @@ export default function Medicines() {
                     placeholder="Enter manufacturer name"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Price (₹)</label>
                   <input
@@ -500,7 +495,7 @@ export default function Medicines() {
                     placeholder="0.00"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Stock Quantity</label>
                   <input
@@ -511,7 +506,7 @@ export default function Medicines() {
                     placeholder="0"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Reorder Level</label>
                   <input
@@ -548,7 +543,7 @@ export default function Medicines() {
                     placeholder="Common side effects..."
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Contraindications</label>
                   <textarea
@@ -573,7 +568,7 @@ export default function Medicines() {
                     placeholder="Dosage instructions..."
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-2">Storage Instructions</label>
                   <textarea

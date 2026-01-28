@@ -1,0 +1,161 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  fullName  String
+  createdAt DateTime @default(now())
+  lastLogin DateTime?
+
+  // Relations
+  clinics ClinicUser[]
+  invitesCreated Invite[] @relation("InviteCreator")
+  doctorProfile  DoctorProfile?
+}
+
+model DoctorProfile {
+  id               Int      @id @default(autoincrement())
+  userId           Int      @unique
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  specialization   String?
+  licenseNumber    String?
+  bio              String?
+  consultationFee  Float?
+  clinicHours      String?
+  education        String?
+  experience       Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model Appointment {
+  id              Int      @id @default(autoincrement())
+  patientName     String
+  doctorName      String
+  appointmentDate String   // YYYY-MM-DD
+  status          String   // "token_generated", "in_progress", "completed", "cancelled"
+  tokenNumber     String?
+  createdAt       DateTime @default(now())
+}
+
+model Prescription {
+  id           Int      @id @default(autoincrement())
+  patientName  String
+  doctorId     Int
+  doctorName   String
+  medicines    String   // JSON string of array
+  instructions String?
+  createdAt    DateTime @default(now())
+}
+
+model Medicine {
+  id          Int      @id @default(autoincrement())
+  name        String
+  type        String
+  dosage      String
+  stock       Int
+  createdAt   DateTime @default(now())
+}
+
+model Invoice {
+  id           Int      @id @default(autoincrement())
+  patientName  String
+  items        String   // JSON string
+  totalAmount  Float
+  status       String   // "pending", "paid"
+  createdAt    DateTime @default(now())
+}
+
+// Multi-Clinic RBAC Models
+model Clinic {
+  id        Int      @id @default(autoincrement())
+  name      String
+  address   String?
+  phone     String?
+  email     String?
+  createdAt DateTime @default(now())
+
+  // Relations
+  users    ClinicUser[]
+  invites  Invite[]
+  patients Patient[]
+}
+
+model Role {
+  id   Int    @id @default(autoincrement())
+  name String @unique // DOCTOR, RECEPTIONIST, ADMIN
+
+  // Relations
+  clinicUsers ClinicUser[]
+  invites     Invite[]
+}
+
+model ClinicUser {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  clinicId  Int
+  roleId    Int
+  createdAt DateTime @default(now())
+
+  // Relations
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clinicId, roleId])
+  @@index([userId])
+  @@index([clinicId])
+}
+
+model Invite {
+  id         Int       @id @default(autoincrement())
+  email      String
+  clinicId   Int
+  roleId     Int
+  token      String    @unique
+  expiresAt  DateTime
+  createdBy  Int
+  createdAt  DateTime  @default(now())
+  acceptedAt DateTime?
+
+  // Relations
+  clinic  Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  role    Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  creator User   @relation("InviteCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([email])
+}
+
+model Patient {
+  id                    Int      @id @default(autoincrement())
+  fullName              String
+  dateOfBirth           String?  // YYYY-MM-DD
+  gender                String?
+  phone                 String?
+  email                 String?
+  address               String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  bloodType             String?
+  allergies             String?
+  medicalHistory        String?
+  clinicId              Int
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  // Relations
+  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  @@index([clinicId])
+  @@index([phone])
+  @@index([fullName])
+}

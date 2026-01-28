@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
-import { db } from '../../../firebase/config'
-import { 
-  ArrowLeft, 
-  Search, 
-  Filter, 
-  Eye, 
-  Download, 
-  Edit, 
+import {
+  ArrowLeft,
+  Search,
+  Filter,
+  Eye,
+  Download,
+  Edit,
   Trash2,
   DollarSign,
   FileText,
@@ -16,12 +14,13 @@ import {
   User,
   Phone,
   CreditCard,
-  Banknote, 
+  Banknote,
   Globe,
   CheckCircle,
   Clock,
   AlertCircle
 } from 'lucide-react'
+import api from '../../../utils/api'
 
 export default function InvoiceList() {
   const [invoices, setInvoices] = useState([])
@@ -36,27 +35,19 @@ export default function InvoiceList() {
   useEffect(() => {
     const fetchInvoices = async () => {
       try {
-        const invoicesRef = collection(db, 'invoices')
-        const q = query(invoicesRef, orderBy('createdAt', 'desc'))
-        
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-          const invoicesData = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          }))
-          setInvoices(invoicesData)
-          setFilteredInvoices(invoicesData)
-          setLoading(false)
-        })
-        
-        return unsubscribe
+        const response = await api.get('/invoices');
+        setInvoices(response.data)
+        setFilteredInvoices(response.data)
+        setLoading(false)
       } catch (error) {
         console.error('Error fetching invoices:', error)
         setLoading(false)
       }
     }
-    
+
     fetchInvoices()
+    const interval = setInterval(fetchInvoices, 10000);
+    return () => clearInterval(interval);
   }, [])
 
   // Filter and search invoices
@@ -81,11 +72,11 @@ export default function InvoiceList() {
     if (dateFilter !== 'all') {
       const today = new Date()
       const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-      
+
       switch (dateFilter) {
         case 'today': {
           filtered = filtered.filter(invoice => {
-            const invoiceDate = invoice.createdAt?.toDate?.() || new Date(invoice.createdAt)
+            const invoiceDate = new Date(invoice.createdAt)
             return invoiceDate >= startOfDay
           })
           break
@@ -93,7 +84,7 @@ export default function InvoiceList() {
         case 'week': {
           const weekAgo = new Date(startOfDay.getTime() - 7 * 24 * 60 * 60 * 1000)
           filtered = filtered.filter(invoice => {
-            const invoiceDate = invoice.createdAt?.toDate?.() || new Date(invoice.createdAt)
+            const invoiceDate = new Date(invoice.createdAt)
             return invoiceDate >= weekAgo
           })
           break
@@ -101,7 +92,7 @@ export default function InvoiceList() {
         case 'month': {
           const monthAgo = new Date(startOfDay.getTime() - 30 * 24 * 60 * 60 * 1000)
           filtered = filtered.filter(invoice => {
-            const invoiceDate = invoice.createdAt?.toDate?.() || new Date(invoice.createdAt)
+            const invoiceDate = new Date(invoice.createdAt)
             return invoiceDate >= monthAgo
           })
           break
@@ -112,11 +103,11 @@ export default function InvoiceList() {
     // Sort invoices
     filtered.sort((a, b) => {
       let aValue, bValue
-      
+
       switch (sortBy) {
         case 'date':
-          aValue = a.createdAt?.toDate?.() || new Date(a.createdAt)
-          bValue = b.createdAt?.toDate?.() || new Date(b.createdAt)
+          aValue = new Date(a.createdAt).getTime()
+          bValue = new Date(b.createdAt).getTime()
           break
         case 'amount':
           aValue = a.totalAmount || 0
@@ -127,8 +118,8 @@ export default function InvoiceList() {
           bValue = b.patientName || ''
           break
         default:
-          aValue = a.createdAt?.toDate?.() || new Date(a.createdAt)
-          bValue = b.createdAt?.toDate?.() || new Date(b.createdAt)
+          aValue = new Date(a.createdAt).getTime()
+          bValue = new Date(b.createdAt).getTime()
       }
 
       if (sortOrder === 'asc') {
@@ -158,8 +149,8 @@ export default function InvoiceList() {
   // Get payment method icon
   const getPaymentMethodIcon = (method) => {
     switch (method) {
-             case 'cash':
-         return { icon: Banknote, color: 'text-green-400' }
+      case 'cash':
+        return { icon: Banknote, color: 'text-green-400' }
       case 'card':
         return { icon: CreditCard, color: 'text-blue-400' }
       case 'online':

@@ -1,15 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore'
-import { db } from '../../../firebase/config'
-import { 
-  ArrowLeft, 
-  Search, 
-  Filter, 
-  DollarSign, 
-  CreditCard, 
-  Banknote, 
-  Globe, 
+import {
+  ArrowLeft,
+  Search,
+  Filter,
+  DollarSign,
+  CreditCard,
+  Banknote,
+  Globe,
   TrendingUp,
   Calendar,
   BarChart3,
@@ -22,6 +20,7 @@ import {
   User,
   Phone
 } from 'lucide-react'
+import api from '../../../utils/api'
 
 export default function PaymentHistory() {
   const [payments, setPayments] = useState([])
@@ -51,75 +50,68 @@ export default function PaymentHistory() {
   useEffect(() => {
     const fetchPayments = async () => {
       try {
-        const paymentsRef = collection(db, 'payments')
-        const q = query(paymentsRef, orderBy('processedAt', 'desc'))
-        
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-          const paymentsData = snapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          }))
-          setPayments(paymentsData)
-          setFilteredPayments(paymentsData)
-          setLoading(false)
-          
-          // Calculate analytics
-          calculateAnalytics(paymentsData)
-        })
-        
-        return unsubscribe
+        const response = await api.get('/payments');
+        const paymentsData = response.data;
+        setPayments(paymentsData)
+        setFilteredPayments(paymentsData)
+        setLoading(false)
+
+        // Calculate analytics
+        calculateAnalytics(paymentsData)
       } catch (error) {
         console.error('Error fetching payments:', error)
         setLoading(false)
       }
     }
-    
+
     fetchPayments()
+    const interval = setInterval(fetchPayments, 10000);
+    return () => clearInterval(interval);
   }, [])
 
   // Calculate analytics
   const calculateAnalytics = (paymentsData) => {
     const totalPayments = paymentsData.length
     const totalAmount = paymentsData.reduce((sum, payment) => sum + (payment.amount || 0), 0)
-    
+
     // Payment method breakdown
     const cashPayments = paymentsData
       .filter(payment => payment.method === 'cash')
       .reduce((sum, payment) => sum + (payment.amount || 0), 0)
-    
+
     const cardPayments = paymentsData
       .filter(payment => payment.method === 'card')
       .reduce((sum, payment) => sum + (payment.amount || 0), 0)
-    
+
     const onlinePayments = paymentsData
       .filter(payment => payment.method === 'online')
       .reduce((sum, payment) => sum + (payment.amount || 0), 0)
-    
+
     // Date-based analytics
     const today = new Date()
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate())
     const weekAgo = new Date(startOfDay.getTime() - 7 * 24 * 60 * 60 * 1000)
     const monthAgo = new Date(startOfDay.getTime() - 30 * 24 * 60 * 60 * 1000)
-    
+
     const todayPayments = paymentsData.filter(payment => {
-      const paymentDate = payment.processedAt?.toDate?.() || new Date(payment.processedAt)
+      const paymentDate = new Date(payment.processedAt)
       return paymentDate >= startOfDay
     })
-    
+
     const weekPayments = paymentsData.filter(payment => {
-      const paymentDate = payment.processedAt?.toDate?.() || new Date(payment.processedAt)
+      const paymentDate = new Date(payment.processedAt)
       return paymentDate >= weekAgo
     })
-    
+
     const monthPayments = paymentsData.filter(payment => {
-      const paymentDate = payment.processedAt?.toDate?.() || new Date(payment.processedAt)
+      const paymentDate = new Date(payment.processedAt)
       return paymentDate >= monthAgo
     })
-    
+
     const todayAmount = todayPayments.reduce((sum, payment) => sum + (payment.amount || 0), 0)
     const weekAmount = weekPayments.reduce((sum, payment) => sum + (payment.amount || 0), 0)
     const monthAmount = monthPayments.reduce((sum, payment) => sum + (payment.amount || 0), 0)
-    
+
     setAnalytics({
       totalPayments,
       totalAmount,
@@ -158,11 +150,11 @@ export default function PaymentHistory() {
     if (dateFilter !== 'all') {
       const today = new Date()
       const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-      
+
       switch (dateFilter) {
         case 'today': {
           filtered = filtered.filter(payment => {
-            const paymentDate = payment.processedAt?.toDate?.() || new Date(payment.processedAt)
+            const paymentDate = new Date(payment.processedAt)
             return paymentDate >= startOfDay
           })
           break
@@ -170,7 +162,7 @@ export default function PaymentHistory() {
         case 'week': {
           const weekAgo = new Date(startOfDay.getTime() - 7 * 24 * 60 * 60 * 1000)
           filtered = filtered.filter(payment => {
-            const paymentDate = payment.processedAt?.toDate?.() || new Date(payment.processedAt)
+            const paymentDate = new Date(payment.processedAt)
             return paymentDate >= weekAgo
           })
           break
@@ -178,7 +170,7 @@ export default function PaymentHistory() {
         case 'month': {
           const monthAgo = new Date(startOfDay.getTime() - 30 * 24 * 60 * 60 * 1000)
           filtered = filtered.filter(payment => {
-            const paymentDate = payment.processedAt?.toDate?.() || new Date(payment.processedAt)
+            const paymentDate = new Date(payment.processedAt)
             return paymentDate >= monthAgo
           })
           break
@@ -189,11 +181,11 @@ export default function PaymentHistory() {
     // Sort payments
     filtered.sort((a, b) => {
       let aValue, bValue
-      
+
       switch (sortBy) {
         case 'date':
-          aValue = a.processedAt?.toDate?.() || new Date(a.processedAt)
-          bValue = b.processedAt?.toDate?.() || new Date(b.processedAt)
+          aValue = new Date(a.processedAt).getTime()
+          bValue = new Date(b.processedAt).getTime()
           break
         case 'amount':
           aValue = a.amount || 0
@@ -204,8 +196,8 @@ export default function PaymentHistory() {
           bValue = b.patientName || ''
           break
         default:
-          aValue = a.processedAt?.toDate?.() || new Date(a.processedAt)
-          bValue = b.processedAt?.toDate?.() || new Date(b.processedAt)
+          aValue = new Date(a.processedAt).getTime()
+          bValue = new Date(b.processedAt).getTime()
       }
 
       if (sortOrder === 'asc') {
@@ -221,8 +213,8 @@ export default function PaymentHistory() {
   // Get payment method icon and color
   const getPaymentMethodIcon = (method) => {
     switch (method) {
-             case 'cash':
-         return { icon: Banknote, color: 'text-green-400', bgColor: 'bg-green-500/20' }
+      case 'cash':
+        return { icon: Banknote, color: 'text-green-400', bgColor: 'bg-green-500/20' }
       case 'card':
         return { icon: CreditCard, color: 'text-blue-400', bgColor: 'bg-blue-500/20' }
       case 'online':
@@ -311,8 +303,8 @@ export default function PaymentHistory() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
           <div className="bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-xl">
             <div className="flex items-center space-x-3 mb-4">
-                             <Banknote className="w-6 h-6 text-green-400" />
-               <h3 className="text-lg font-semibold">Cash Payments</h3>
+              <Banknote className="w-6 h-6 text-green-400" />
+              <h3 className="text-lg font-semibold">Cash Payments</h3>
             </div>
             <p className="text-2xl font-bold text-green-400">₹{analytics.cashPayments.toLocaleString()}</p>
             <p className="text-sm text-slate-400 mt-2">Total cash received</p>
@@ -449,7 +441,7 @@ export default function PaymentHistory() {
                     return (
                       <tr key={payment.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                         <td className="py-3 px-4">
-                          <span className="font-mono text-purple-400">#{payment.id.slice(-8)}</span>
+                          <span className="font-mono text-purple-400">#{payment.id}</span>
                         </td>
                         <td className="py-3 px-4">
                           <div>
@@ -477,7 +469,7 @@ export default function PaymentHistory() {
                           </span>
                         </td>
                         <td className="py-3 px-4 text-sm text-slate-400">
-                          {payment.processedAt?.toDate?.()?.toLocaleDateString() || 'N/A'}
+                          {payment.processedAt ? new Date(payment.processedAt).toLocaleDateString() : 'N/A'}
                         </td>
                         <td className="py-3 px-4">
                           <div className="flex space-x-2">

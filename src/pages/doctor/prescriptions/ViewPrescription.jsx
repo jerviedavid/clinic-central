@@ -4,12 +4,12 @@ import { Link, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import LogoutButton from '../../../components/LogoutButton'
 import { downloadPrescriptionPDF, openPrescriptionPDF, printPrescriptionPDF } from '../../receptionist/prescriptions/PrescriptionPdfGenerator'
-import { 
-  User, 
-  Calendar, 
-  Clock, 
-  Phone, 
-  Mail, 
+import {
+  User,
+  Calendar,
+  Clock,
+  Phone,
+  Mail,
   ArrowLeft,
   Pill,
   FileText,
@@ -20,8 +20,7 @@ import {
   Package,
   Activity
 } from 'lucide-react'
-import { doc, getDoc } from 'firebase/firestore'
-import { db } from '../../../firebase/config'
+import api from '../../../utils/api'
 
 export default function ViewPrescription() {
   const { currentUser: _ } = useAuth()
@@ -34,12 +33,8 @@ export default function ViewPrescription() {
       if (!id) return
 
       try {
-        const prescriptionDoc = await getDoc(doc(db, 'prescriptions', id))
-        if (prescriptionDoc.exists()) {
-          setPrescription({ id: prescriptionDoc.id, ...prescriptionDoc.data() })
-        } else {
-          toast.error('Prescription not found')
-        }
+        const response = await api.get(`/prescriptions/${id}`)
+        setPrescription(response.data)
       } catch (error) {
         console.error('Error fetching prescription:', error)
         toast.error('Error loading prescription')
@@ -159,7 +154,7 @@ export default function ViewPrescription() {
       <header className="bg-white/5 backdrop-blur-xl border-b border-white/10 p-4">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
           <div className="flex items-center space-x-3">
-            <Link 
+            <Link
               to="/doctor/prescriptions"
               className="flex items-center space-x-2 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg transition-colors"
             >
@@ -218,7 +213,7 @@ export default function ViewPrescription() {
                 </span>
               </div>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-slate-400">Date:</span>
@@ -237,7 +232,7 @@ export default function ViewPrescription() {
               <User className="w-5 h-5 text-blue-400" />
               <span>Patient Information</span>
             </h3>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <span className="text-slate-400">Name:</span>
@@ -268,7 +263,7 @@ export default function ViewPrescription() {
               <AlertTriangle className="w-5 h-5 text-yellow-400" />
               <span>Diagnosis & Symptoms</span>
             </h3>
-            
+
             <div className="space-y-4">
               {prescription.diagnosis && (
                 <div>
@@ -276,7 +271,7 @@ export default function ViewPrescription() {
                   <p className="text-white">{prescription.diagnosis}</p>
                 </div>
               )}
-              
+
               {prescription.symptoms && (
                 <div>
                   <h4 className="text-sm font-medium text-slate-300 mb-2">Symptoms:</h4>
@@ -292,7 +287,7 @@ export default function ViewPrescription() {
               <Pill className="w-5 h-5 text-green-400" />
               <span>Prescribed Medicines ({prescription.medicines?.length || 0})</span>
             </h3>
-            
+
             <div className="space-y-4">
               {prescription.medicines?.map((medicine, index) => (
                 <div key={medicine.id || index} className="bg-white/5 border border-white/10 rounded-lg p-4">
@@ -303,7 +298,7 @@ export default function ViewPrescription() {
                     </div>
                     <span className="text-sm text-slate-400">#{index + 1}</span>
                   </div>
-                  
+
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                     <div>
                       <span className="text-slate-400">Dosage:</span>
@@ -322,7 +317,7 @@ export default function ViewPrescription() {
                       <span className="ml-2 text-white">{getTimingLabel(medicine.timing)}</span>
                     </div>
                   </div>
-                  
+
                   {medicine.specialInstructions && (
                     <div className="mt-3">
                       <span className="text-slate-400 text-sm">Special Instructions:</span>
@@ -340,7 +335,7 @@ export default function ViewPrescription() {
               <CheckCircle className="w-5 h-5 text-blue-400" />
               <span>Instructions & Follow-up</span>
             </h3>
-            
+
             <div className="space-y-4">
               {prescription.instructions && (
                 <div>
@@ -348,14 +343,14 @@ export default function ViewPrescription() {
                   <p className="text-white">{prescription.instructions}</p>
                 </div>
               )}
-              
+
               {prescription.followUpDate && (
                 <div>
                   <h4 className="text-sm font-medium text-slate-300 mb-2">Follow-up Date:</h4>
                   <p className="text-white">{prescription.followUpDate}</p>
                 </div>
               )}
-              
+
               {prescription.notes && (
                 <div>
                   <h4 className="text-sm font-medium text-slate-300 mb-2">Additional Notes:</h4>
