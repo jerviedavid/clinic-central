@@ -30,9 +30,9 @@ export default function MasterDashboard() {
 
     useEffect(() => {
         if (isSuperAdmin) {
-            fetchPlans()
             fetchData()
             fetchAllClinics()
+            fetchPlans()
         }
     }, [isSuperAdmin, activeTab])
 
@@ -60,7 +60,8 @@ export default function MasterDashboard() {
             setAllClinics(response.data)
         } catch (error) {
             console.error('Error fetching all clinics:', error)
-     
+        }
+    }
 
     const fetchPlans = async () => {
         try {
@@ -70,7 +71,6 @@ export default function MasterDashboard() {
             console.error('Error fetching plans:', error)
             toast.error('Failed to fetch plans')
         }
-    }   }
     }
 
     const handleLinkClinic = async (e) => {
