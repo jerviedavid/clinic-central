@@ -3,6 +3,41 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================
+   Capacitor Mobile Safe Area Support
+   Handles iOS notch, Android cutouts, and
+   bottom navigation bars on all devices.
+   ============================================ */
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+}
+
+html {
+  /* Ensure content avoids native UI overlaps */
+  padding-top: var(--sat);
+  padding-bottom: var(--sab);
+  padding-left: var(--sal);
+  padding-right: var(--sar);
+}
+
+body {
+  /* Prevent overscroll bounce on iOS */
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Utility class for components that need safe-area awareness */
+.safe-area-top {
+  padding-top: var(--sat);
+}
+
+.safe-area-bottom {
+  padding-bottom: var(--sab);
+}
+
 /* Custom animations and utilities */
 @keyframes float {
   0%, 100% { transform: translateY(0px); }

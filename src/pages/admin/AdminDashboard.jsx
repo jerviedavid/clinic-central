@@ -11,6 +11,7 @@ import {
 import { TrendingUp, AlertTriangle, CreditCard, Camera, Upload, Image as ImageIcon, X } from 'lucide-react'
 import api from '../../utils/api'
 import { toast } from 'react-hot-toast'
+import { takePhoto, pickImage, hasNativeCamera } from '../../utils/camera'
 import UpgradeModal from '../../components/UpgradeModal'
 
 export default function AdminDashboard() {
@@ -164,11 +165,20 @@ export default function AdminDashboard() {
     }
 
     // Handle profile image upload
-    const handleProfileImageUpload = (e) => {
-        const file = e.target.files[0]
+    const handleProfileImageUpload = async (e) => {
+        // Try native gallery picker first (mobile)
+        if (hasNativeCamera()) {
+            const dataUrl = await pickImage({ quality: 90 })
+            if (dataUrl) {
+                setEditingStaff({ ...editingStaff, profileImage: dataUrl })
+                toast.success('Profile image added')
+                return
+            }
+        }
+        // Web fallback
+        const file = e?.target?.files?.[0]
         if (!file) return
 
-        // Check file size (50MB limit)
         if (file.size > 50 * 1024 * 1024) {
             toast.error('Image should be less than 50MB')
             return
@@ -183,8 +193,18 @@ export default function AdminDashboard() {
     }
 
     // Handle camera capture for profile image
-    const handleProfileCamera = (e) => {
-        const file = e.target.files[0]
+    const handleProfileCamera = async (e) => {
+        // Try native camera first (mobile)
+        if (hasNativeCamera()) {
+            const dataUrl = await takePhoto({ quality: 90 })
+            if (dataUrl) {
+                setEditingStaff({ ...editingStaff, profileImage: dataUrl })
+                toast.success('Photo captured')
+                return
+            }
+        }
+        // Web fallback
+        const file = e?.target?.files?.[0]
         if (!file) return
 
         const reader = new FileReader()

@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { FaXmark, FaFloppyDisk, FaUser, FaEnvelope, FaPhone, FaLocationDot, FaBriefcase, FaClock, FaIdBadge, FaUserCircle } from 'react-icons/fa6'
+import { FaXmark, FaFloppyDisk, FaUser, FaEnvelope, FaPhone, FaLocationDot, FaBriefcase, FaClock, FaIdBadge } from 'react-icons/fa6'
 import { Camera, Upload, Image as ImageIcon, X, UserCircle, Calendar, Users } from 'lucide-react'
 import api from '../../utils/api'
 import { toast } from 'react-hot-toast'
+import { takePhoto, pickImage, hasNativeCamera } from '../../utils/camera'
 
 export default function ProfileModal({ isOpen, onClose, onUpdate }) {
     const [isLoading, setIsLoading] = useState(true)
@@ -73,11 +74,20 @@ export default function ProfileModal({ isOpen, onClose, onUpdate }) {
     }
 
     // Handle profile image upload
-    const handleProfileImageUpload = (e) => {
-        const file = e.target.files[0]
+    const handleProfileImageUpload = async (e) => {
+        // Try native gallery picker first (mobile)
+        if (hasNativeCamera()) {
+            const dataUrl = await pickImage({ quality: 90 })
+            if (dataUrl) {
+                setFormData({ ...formData, profileImage: dataUrl })
+                toast.success('Profile photo added')
+                return
+            }
+        }
+        // Web fallback
+        const file = e?.target?.files?.[0]
         if (!file) return
 
-        // Check file size (50MB limit)
         if (file.size > 50 * 1024 * 1024) {
             toast.error('Image should be less than 50MB')
             return
@@ -92,8 +102,18 @@ export default function ProfileModal({ isOpen, onClose, onUpdate }) {
     }
 
     // Handle camera capture for profile image
-    const handleProfileCamera = (e) => {
-        const file = e.target.files[0]
+    const handleProfileCamera = async (e) => {
+        // Try native camera first (mobile)
+        if (hasNativeCamera()) {
+            const dataUrl = await takePhoto({ quality: 90 })
+            if (dataUrl) {
+                setFormData({ ...formData, profileImage: dataUrl })
+                toast.success('Photo captured')
+                return
+            }
+        }
+        // Web fallback
+        const file = e?.target?.files?.[0]
         if (!file) return
 
         const reader = new FileReader()

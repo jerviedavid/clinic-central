@@ -29,6 +29,14 @@ dist-ssr
 prisma/*.db
 prisma/*.db-journal
 
+# Capacitor native build artifacts
+android/app/build/
+android/.gradle/
+android/build/
+android/local.properties
+ios/App/Pods/
+ios/DerivedData/
+
 # Logs
 *.txt
 *.log

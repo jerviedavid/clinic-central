@@ -17,7 +17,14 @@ const PORT = process.env.BACKEND_PORT || 5000;
 const BANNER_VERSION = "2026-02-02-V2";
 
 app.use(cors({
-  origin: 'http://localhost:5173', // Vite default port
+  origin: [
+    'http://localhost:5173',        // Vite dev server
+    'http://localhost:5000',        // Direct access
+    'https://localhost',            // Capacitor iOS
+    'capacitor://localhost',        // Capacitor iOS native
+    'http://localhost',             // Capacitor Android
+    'https://life-clinic-management-system.vercel.app',  // Production
+  ],
   credentials: true
 }));
 // Increase payload size limit for file uploads (images/attachments)

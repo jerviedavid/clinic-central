@@ -1,4 +1,6 @@
-import { Route, Routes, Navigate } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Route, Routes, Navigate, useNavigate } from 'react-router-dom'
+import { isNative, isAndroid } from './utils/platform'
 import Home from './pages/Home'
 import Login from './pages/auth/Login'
 import Doctor from './pages/doctor/Doctor'
@@ -38,6 +40,73 @@ import Pricing from './pages/Pricing'
 import BillingSettings from './pages/settings/BillingSettings'
 
 function App() {
+  const navigate = useNavigate()
+
+  // ── Capacitor Native Lifecycle ──────────────────────────────────
+  useEffect(() => {
+    if (!isNative()) return
+
+    let cleanupFns = []
+
+    const initNative = async () => {
+      try {
+        // Status bar styling (dark theme to match app)
+        const { StatusBar, Style } = await import('@capacitor/status-bar')
+        await StatusBar.setStyle({ style: Style.Dark })
+        await StatusBar.setBackgroundColor({ color: '#0f172a' })
+        cleanupFns.push(() => {})
+      } catch (e) {
+        console.log('StatusBar plugin not available:', e.message)
+      }
+
+      try {
+        // Hide splash screen after app loads
+        const { SplashScreen } = await import('@capacitor/splash-screen')
+        await SplashScreen.hide()
+      } catch (e) {
+        console.log('SplashScreen plugin not available:', e.message)
+      }
+
+      try {
+        // Android back button handling
+        const { App: CapApp } = await import('@capacitor/app')
+        const backHandler = await CapApp.addListener('backButton', ({ canGoBack }) => {
+          if (canGoBack) {
+            navigate(-1)
+          } else {
+            CapApp.exitApp()
+          }
+        })
+        cleanupFns.push(() => backHandler.remove())
+      } catch (e) {
+        console.log('App plugin not available:', e.message)
+      }
+
+      try {
+        // Keyboard behavior on mobile
+        const { Keyboard } = await import('@capacitor/keyboard')
+        const showHandler = await Keyboard.addListener('keyboardWillShow', () => {
+          document.body.classList.add('keyboard-open')
+        })
+        const hideHandler = await Keyboard.addListener('keyboardWillHide', () => {
+          document.body.classList.remove('keyboard-open')
+        })
+        cleanupFns.push(() => {
+          showHandler.remove()
+          hideHandler.remove()
+        })
+      } catch (e) {
+        console.log('Keyboard plugin not available:', e.message)
+      }
+    }
+
+    initNative()
+
+    return () => {
+      cleanupFns.forEach(fn => fn())
+    }
+  }, [navigate])
+
   return (
     <Routes>
       <Route path="/" element={<Home />} />

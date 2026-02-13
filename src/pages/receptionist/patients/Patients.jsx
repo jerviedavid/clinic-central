@@ -35,6 +35,7 @@ import {
     File
 } from 'lucide-react'
 import api from '../../../utils/api'
+import { takePhoto, pickImage, hasNativeCamera } from '../../../utils/camera'
 
 export default function Patients() {
     const { currentUser } = useAuth()
@@ -126,10 +127,19 @@ export default function Patients() {
     }
 
     // Handle profile image upload / camera capture
-    const handleImageUpload = (e) => {
-        const file = e.target.files[0]
+    const handleImageUpload = async (e) => {
+        // Try native gallery/camera first (mobile)
+        if (hasNativeCamera()) {
+            const dataUrl = await pickImage({ quality: 90 })
+            if (dataUrl) {
+                setFormData({ ...formData, profileImage: dataUrl })
+                toast.success('Profile image loaded')
+                return
+            }
+        }
+        // Web fallback
+        const file = e?.target?.files?.[0]
         if (file) {
-            // Check file size (limit to 50MB)
             if (file.size > 50 * 1024 * 1024) {
                 toast.error('Image size should be less than 50MB')
                 return
@@ -181,8 +191,28 @@ export default function Patients() {
     }
 
     // Handle camera capture for attachments (documents/images)
-    const handleAttachmentCamera = (e) => {
-        const files = Array.from(e.target.files)
+    const handleAttachmentCamera = async (e) => {
+        // Try native camera first (mobile)
+        if (hasNativeCamera()) {
+            const dataUrl = await takePhoto({ quality: 90 })
+            if (dataUrl) {
+                const newAttachment = {
+                    name: `Camera_Capture_${new Date().getTime()}.jpg`,
+                    type: 'image/jpeg',
+                    size: Math.round(dataUrl.length * 0.75),
+                    data: dataUrl,
+                    uploadedAt: new Date().toISOString()
+                }
+                setFormData({ 
+                    ...formData, 
+                    attachments: [...formData.attachments, newAttachment] 
+                })
+                toast.success('Document captured')
+                return
+            }
+        }
+        // Web fallback
+        const files = Array.from(e?.target?.files || [])
         
         const filePromises = files.map((file, index) => {
             return new Promise((resolve) => {
