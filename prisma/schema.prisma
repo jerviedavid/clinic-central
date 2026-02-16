@@ -31,10 +31,15 @@ model DoctorProfile {
   userId           Int      @unique
   user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   specialization   String?
+  subspecialty     String?
   licenseNumber    String?
+  prcId            String?  // PRC / Medical Registration ID
   bio              String?
   consultationFee  Float?
   clinicHours      String?
+  digitalSignature String?  // Base64 encoded signature image for prescriptions
+  ptrTaxId         String?  // PTR / Tax ID for official receipts
+  ePrescriptionId  String?  // E-prescription ID
   education        String?
   experience       Int?
   createdAt        DateTime @default(now())
@@ -162,16 +167,38 @@ model Patient {
   fullName              String
   dateOfBirth           String?  // YYYY-MM-DD
   gender                String?
+  civilStatus           String?  // Single, Married, Widowed, Separated, Divorced
+  nationalId            String?  // National ID / Passport number
   phone                 String?
   email                 String?
   address               String?
   emergencyContactName  String?
   emergencyContactPhone String?
+  emergencyContactRelationship String? // Spouse, Parent, Sibling, etc.
+
+  // Administrative
+  insuranceProvider     String?
+  insurancePolicyNumber String?
+  hmoAccount            String?  // HMO / Corporate Account
+  referredBy            String?
+  firstVisitDate        String?  // YYYY-MM-DD
+  preferredCommunication String? // SMS, Email, WhatsApp
+
+  // Medical Basics
   bloodType             String?
-  allergies             String?
-  medicalHistory        String?
+  allergies             String?  // Drug/food/environmental allergies
+  currentMedications    String?
+  medicalHistory        String?  // Past medical history
+  surgicalHistory       String?
+  familyHistory         String?
+  smokingAlcoholUse     String?  // Smoking / Alcohol usage info
+  height                Float?   // in cm
+  weight                Float?   // in kg
+  vaccinationStatus     String?  // Optional global field
+
   profileImage          String?  // Base64 encoded image or file path
   attachments           String?  // JSON string array of file objects
+  specialtyData         String?  // JSON object of specialty-specific form data
   clinicId              Int
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt

@@ -16,16 +16,39 @@ router.get('/', requireAuth, async (req, res) => {
     try {
         const patients = db.prepare('SELECT * FROM Patient WHERE clinicId = ? ORDER BY createdAt DESC').all(req.user.clinicId);
         
-        // Parse attachments JSON for each patient
+        // Parse attachments and specialtyData JSON for each patient
         const parsedPatients = patients.map(p => ({
             ...p,
-            attachments: p.attachments ? JSON.parse(p.attachments) : []
+            attachments: p.attachments ? JSON.parse(p.attachments) : [],
+            specialtyData: p.specialtyData ? JSON.parse(p.specialtyData) : {}
         }));
         
         res.json(parsedPatients);
     } catch (error) {
         console.error('Error fetching patients:', error);
         res.status(500).json({ message: 'Error fetching patients' });
+    }
+});
+
+// GET /api/patients/clinic-specialty - Get the clinic's doctor specialization(s)
+router.get('/clinic-specialty', requireAuth, async (req, res) => {
+    try {
+        const doctors = db.prepare(`
+            SELECT dp.specialization, dp.subspecialty
+            FROM DoctorProfile dp
+            JOIN ClinicUser cu ON cu.userId = dp.userId
+            JOIN Role r ON r.id = cu.roleId AND r.name = 'DOCTOR'
+            WHERE cu.clinicId = ?
+        `).all(req.user.clinicId);
+
+        const specializations = doctors
+            .map(d => [d.specialization, d.subspecialty].filter(Boolean))
+            .flat();
+
+        res.json({ specializations });
+    } catch (error) {
+        console.error('Error fetching clinic specialty:', error);
+        res.status(500).json({ message: 'Error fetching clinic specialty' });
     }
 });
 
@@ -101,16 +124,33 @@ router.post('/', requireAuth, requireRole(['RECEPTIONIST', 'ADMIN']), async (req
             fullName,
             dateOfBirth,
             gender,
+            civilStatus,
+            nationalId,
             phone,
             email,
             address,
             emergencyContactName,
             emergencyContactPhone,
+            emergencyContactRelationship,
+            insuranceProvider,
+            insurancePolicyNumber,
+            hmoAccount,
+            referredBy,
+            firstVisitDate,
+            preferredCommunication,
             bloodType,
             allergies,
+            currentMedications,
             medicalHistory,
+            surgicalHistory,
+            familyHistory,
+            smokingAlcoholUse,
+            height,
+            weight,
+            vaccinationStatus,
             profileImage,
-            attachments
+            attachments,
+            specialtyData
         } = req.body;
 
         if (!fullName) {
@@ -119,15 +159,29 @@ router.post('/', requireAuth, requireRole(['RECEPTIONIST', 'ADMIN']), async (req
 
         const result = db.prepare(`
             INSERT INTO Patient (
-                fullName, dateOfBirth, gender, phone, email, address,
-                emergencyContactName, emergencyContactPhone, bloodType,
-                allergies, medicalHistory, profileImage, attachments, clinicId
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                fullName, dateOfBirth, gender, civilStatus, nationalId,
+                phone, email, address,
+                emergencyContactName, emergencyContactPhone, emergencyContactRelationship,
+                insuranceProvider, insurancePolicyNumber, hmoAccount, referredBy,
+                firstVisitDate, preferredCommunication,
+                bloodType, allergies, currentMedications, medicalHistory,
+                surgicalHistory, familyHistory, smokingAlcoholUse,
+                height, weight, vaccinationStatus,
+                profileImage, attachments, specialtyData, clinicId
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
-            fullName, dateOfBirth, gender, phone, email, address,
-            emergencyContactName, emergencyContactPhone, bloodType,
-            allergies, medicalHistory, profileImage || null, 
-            attachments ? JSON.stringify(attachments) : null, req.user.clinicId
+            fullName, dateOfBirth, gender, civilStatus, nationalId,
+            phone, email, address,
+            emergencyContactName, emergencyContactPhone, emergencyContactRelationship,
+            insuranceProvider, insurancePolicyNumber, hmoAccount, referredBy,
+            firstVisitDate, preferredCommunication,
+            bloodType, allergies, currentMedications, medicalHistory,
+            surgicalHistory, familyHistory, smokingAlcoholUse,
+            height || null, weight || null, vaccinationStatus,
+            profileImage || null,
+            attachments ? JSON.stringify(attachments) : null,
+            specialtyData ? JSON.stringify(specialtyData) : null,
+            req.user.clinicId
         );
 
         res.status(201).json({ id: result.lastInsertRowid, message: 'Patient created successfully' });
@@ -152,6 +206,11 @@ router.patch('/:id', requireAuth, requireRole(['RECEPTIONIST', 'ADMIN']), async 
         // Handle JSON serialization for attachments
         if (updates.attachments && Array.isArray(updates.attachments)) {
             updates.attachments = JSON.stringify(updates.attachments);
+        }
+
+        // Handle JSON serialization for specialtyData
+        if (updates.specialtyData && typeof updates.specialtyData === 'object') {
+            updates.specialtyData = JSON.stringify(updates.specialtyData);
         }
 
         const fields = Object.keys(updates).filter(key => key !== 'id' && key !== 'clinicId' && key !== 'createdAt');

@@ -1,17 +1,17 @@
-# 🏥 Life Clinic Management System
+# 🏥 Clinic Central
 
-![Life Clinic Management System Banner](preview/logo.png)
+![Clinic Central Banner](preview/logo.png)
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-Visit%20Site-blue?style=for-the-badge&logo=vercel)](https://life-clinic-management-system.vercel.app)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Visit%20Site-blue?style=for-the-badge&logo=vercel)](https://clinic-central.vercel.app)
 [![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com)
 [![React](https://img.shields.io/badge/React-19.1.1-61DAFB?style=for-the-badge&logo=react)](https://reactjs.org/)
 [![Prisma](https://img.shields.io/badge/Prisma-5.22.0-2D3748?style=for-the-badge&logo=prisma)](https://www.prisma.io/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind%20CSS-4.1.12-38B2AC?style=for-the-badge&logo=tailwind-css)](https://tailwindcss.com/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-> 🚀 **Live Application**: [life-clinic-management-system.vercel.app](https://life-clinic-management-system.vercel.app)
+> 🚀 **Live Application**: [clinic-central.vercel.app](https://clinic-central.vercel.app)
 
-A modern, secure, and feature-rich clinic management system built with React 19, Node.js/Express, Prisma, and Tailwind CSS. Streamline your healthcare operations with comprehensive patient management, appointment scheduling, prescription management, billing systems, and role-based access control.
+**Clinic Central - Doctor, Receptionist, Prescription, Medicine and Patient Management System** - A modern, secure, and feature-rich clinic management system built with React 19, Node.js/Express, Prisma, and Tailwind CSS. Streamline your healthcare operations with comprehensive patient management, appointment scheduling, prescription management, billing systems, and role-based access control.
 
 ## 🛠️ Tech Stack
 
@@ -82,7 +82,7 @@ Our clinic management system is built with cutting-edge technologies to ensure p
 
 ## 🌟 Live Demo
 
-Experience the application live at: **[life-clinic-management-system.vercel.app](https://life-clinic-management-system.vercel.app)**
+Experience the application live at: **[clinic-central.vercel.app](https://clinic-central.vercel.app)**
 
 ### 🧪 Test Accounts
 - **Doctor**: Create a new account with Doctor role
@@ -90,7 +90,7 @@ Experience the application live at: **[life-clinic-management-system.vercel.app]
 
 ## 📸 Application Preview
 
-Here's a comprehensive preview of all the key features and interfaces in the Life Clinic Management System:
+Here's a comprehensive preview of all the key features and interfaces in Clinic Central:
 
 | Feature | Preview |
 |:--------:|:-------:|
@@ -223,7 +223,7 @@ prisma/
 ## 🌐 Deployment
 
 This application is deployed on **Vercel** and is live at:
-**[life-clinic-management-system.vercel.app](https://life-clinic-management-system.vercel.app)**
+**[clinic-central.vercel.app](https://clinic-central.vercel.app)**
 
 
 ## 🔒 Security Features
@@ -304,7 +304,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 **Dhruv Patel**
 - GitHub: [@dhruvpatel16120](https://github.com/dhruvpatel16120)
-- Live Demo: [life-clinic-management-system.vercel.app](https://life-clinic-management-system.vercel.app)
+- Live Demo: [clinic-central.vercel.app](https://clinic-central.vercel.app)
 
 ## 🙏 Acknowledgments
 

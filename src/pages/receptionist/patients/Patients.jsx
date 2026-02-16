@@ -36,6 +36,7 @@ import {
 } from 'lucide-react'
 import api from '../../../utils/api'
 import { takePhoto, pickImage, hasNativeCamera } from '../../../utils/camera'
+import SpecialtyFields from '../../../components/SpecialtyFields'
 
 export default function Patients() {
     const { currentUser } = useAuth()
@@ -50,6 +51,7 @@ export default function Patients() {
     const [activeTab, setActiveTab] = useState('appointments')
     const [showPreviewModal, setShowPreviewModal] = useState(false)
     const [previewAttachment, setPreviewAttachment] = useState(null)
+    const [clinicSpecialization, setClinicSpecialization] = useState('')
     
     // New refs for file inputs
     const fileInputRef = useRef(null)
@@ -61,21 +63,49 @@ export default function Patients() {
         fullName: '',
         dateOfBirth: '',
         gender: '',
+        civilStatus: '',
+        nationalId: '',
         phone: '',
         email: '',
         address: '',
         emergencyContactName: '',
         emergencyContactPhone: '',
+        emergencyContactRelationship: '',
+        insuranceProvider: '',
+        insurancePolicyNumber: '',
+        hmoAccount: '',
+        referredBy: '',
+        firstVisitDate: '',
+        preferredCommunication: '',
         bloodType: '',
         allergies: '',
+        currentMedications: '',
         medicalHistory: '',
+        surgicalHistory: '',
+        familyHistory: '',
+        smokingAlcoholUse: '',
+        height: '',
+        weight: '',
+        vaccinationStatus: '',
         profileImage: null,
-        attachments: []
+        attachments: [],
+        specialtyData: {}
     })
 
     useEffect(() => {
         fetchPatients()
+        fetchClinicSpecialty()
     }, [])
+
+    const fetchClinicSpecialty = async () => {
+        try {
+            const response = await api.get('/patients/clinic-specialty')
+            const specs = response.data.specializations || []
+            setClinicSpecialization(specs.join(', '))
+        } catch (error) {
+            console.error('Error fetching clinic specialty:', error)
+        }
+    }
 
     const fetchPatients = async () => {
         try {
@@ -94,16 +124,33 @@ export default function Patients() {
                 fullName: patient.fullName || '',
                 dateOfBirth: patient.dateOfBirth || '',
                 gender: patient.gender || '',
+                civilStatus: patient.civilStatus || '',
+                nationalId: patient.nationalId || '',
                 phone: patient.phone || '',
                 email: patient.email || '',
                 address: patient.address || '',
                 emergencyContactName: patient.emergencyContactName || '',
                 emergencyContactPhone: patient.emergencyContactPhone || '',
+                emergencyContactRelationship: patient.emergencyContactRelationship || '',
+                insuranceProvider: patient.insuranceProvider || '',
+                insurancePolicyNumber: patient.insurancePolicyNumber || '',
+                hmoAccount: patient.hmoAccount || '',
+                referredBy: patient.referredBy || '',
+                firstVisitDate: patient.firstVisitDate || '',
+                preferredCommunication: patient.preferredCommunication || '',
                 bloodType: patient.bloodType || '',
                 allergies: patient.allergies || '',
+                currentMedications: patient.currentMedications || '',
                 medicalHistory: patient.medicalHistory || '',
+                surgicalHistory: patient.surgicalHistory || '',
+                familyHistory: patient.familyHistory || '',
+                smokingAlcoholUse: patient.smokingAlcoholUse || '',
+                height: patient.height || '',
+                weight: patient.weight || '',
+                vaccinationStatus: patient.vaccinationStatus || '',
                 profileImage: patient.profileImage || null,
-                attachments: patient.attachments || []
+                attachments: patient.attachments || [],
+                specialtyData: patient.specialtyData || {}
             })
         } else {
             setSelectedPatient(null)
@@ -111,16 +158,33 @@ export default function Patients() {
                 fullName: '',
                 dateOfBirth: '',
                 gender: '',
+                civilStatus: '',
+                nationalId: '',
                 phone: '',
                 email: '',
                 address: '',
                 emergencyContactName: '',
                 emergencyContactPhone: '',
+                emergencyContactRelationship: '',
+                insuranceProvider: '',
+                insurancePolicyNumber: '',
+                hmoAccount: '',
+                referredBy: '',
+                firstVisitDate: '',
+                preferredCommunication: '',
                 bloodType: '',
                 allergies: '',
+                currentMedications: '',
                 medicalHistory: '',
+                surgicalHistory: '',
+                familyHistory: '',
+                smokingAlcoholUse: '',
+                height: '',
+                weight: '',
+                vaccinationStatus: '',
                 profileImage: null,
-                attachments: []
+                attachments: [],
+                specialtyData: {}
             })
         }
         setShowModal(true)
@@ -426,7 +490,7 @@ export default function Patients() {
                                     </div>
                                 </div>
 
-                                <div className="mt-4 pt-4 border-t border-white/10 flex gap-2">
+                                <div className="mt-4 pt-4 border-t border-white/10 flex flex-wrap gap-2">
                                     {patient.bloodType && (
                                         <span className="px-2 py-1 bg-red-500/10 text-red-400 text-[10px] font-bold rounded uppercase flex items-center gap-1">
                                             <Heart className="w-3 h-3" /> {patient.bloodType}
@@ -435,6 +499,23 @@ export default function Patients() {
                                     {patient.allergies && (
                                         <span className="px-2 py-1 bg-yellow-500/10 text-yellow-400 text-[10px] font-bold rounded flex items-center gap-1">
                                             <AlertCircle className="w-3 h-3" /> Allergies
+                                        </span>
+                                    )}
+                                    {patient.insuranceProvider && (
+                                        <span className="px-2 py-1 bg-green-500/10 text-green-400 text-[10px] font-bold rounded flex items-center gap-1">
+                                            Insurance
+                                        </span>
+                                    )}
+                                    {patient.dateOfBirth && (
+                                        <span className="px-2 py-1 bg-blue-500/10 text-blue-400 text-[10px] font-bold rounded flex items-center gap-1">
+                                            <Calendar className="w-3 h-3" /> {(() => {
+                                                const today = new Date();
+                                                const birth = new Date(patient.dateOfBirth);
+                                                let age = today.getFullYear() - birth.getFullYear();
+                                                const m = today.getMonth() - birth.getMonth();
+                                                if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+                                                return `${age}y`;
+                                            })()}
                                         </span>
                                     )}
                                 </div>
@@ -545,7 +626,7 @@ export default function Patients() {
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs text-slate-400 mb-1">Gender</label>
+                                        <label className="block text-xs text-slate-400 mb-1">Sex / Gender</label>
                                         <select
                                             value={formData.gender}
                                             onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
@@ -564,6 +645,47 @@ export default function Patients() {
                                             value={formData.dateOfBirth}
                                             onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
                                             className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Age</label>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            value={formData.dateOfBirth ? (() => {
+                                                const today = new Date();
+                                                const birth = new Date(formData.dateOfBirth);
+                                                let age = today.getFullYear() - birth.getFullYear();
+                                                const m = today.getMonth() - birth.getMonth();
+                                                if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+                                                return age >= 0 ? `${age} years old` : '';
+                                            })() : 'Auto-calculated'}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-slate-400 outline-none cursor-not-allowed"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Civil Status</label>
+                                        <select
+                                            value={formData.civilStatus}
+                                            onChange={(e) => setFormData({ ...formData, civilStatus: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors text-white [&>option]:text-black"
+                                        >
+                                            <option value="">Select status</option>
+                                            <option value="Single">Single</option>
+                                            <option value="Married">Married</option>
+                                            <option value="Widowed">Widowed</option>
+                                            <option value="Separated">Separated</option>
+                                            <option value="Divorced">Divorced</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">National ID / Passport</label>
+                                        <input
+                                            type="text"
+                                            value={formData.nationalId}
+                                            onChange={(e) => setFormData({ ...formData, nationalId: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors"
+                                            placeholder="ID or Passport number"
                                         />
                                     </div>
                                     <div>
@@ -599,6 +721,125 @@ export default function Patients() {
                                 </div>
                             </section>
 
+                            {/* Emergency Contact */}
+                            <section>
+                                <div className="flex items-center gap-2 mb-4">
+                                    <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wider">Emergency Contact</h3>
+                                    <div className="h-px flex-1 bg-orange-400/20"></div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Contact Name</label>
+                                        <input
+                                            type="text"
+                                            value={formData.emergencyContactName}
+                                            onChange={(e) => setFormData({ ...formData, emergencyContactName: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors"
+                                            placeholder="Next of kin or close relative"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Contact Phone</label>
+                                        <input
+                                            type="tel"
+                                            value={formData.emergencyContactPhone}
+                                            onChange={(e) => setFormData({ ...formData, emergencyContactPhone: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors"
+                                            placeholder="Emergency phone number"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Relationship</label>
+                                        <select
+                                            value={formData.emergencyContactRelationship}
+                                            onChange={(e) => setFormData({ ...formData, emergencyContactRelationship: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors text-white [&>option]:text-black"
+                                        >
+                                            <option value="">Select relationship</option>
+                                            <option value="Spouse">Spouse</option>
+                                            <option value="Parent">Parent</option>
+                                            <option value="Sibling">Sibling</option>
+                                            <option value="Child">Child</option>
+                                            <option value="Friend">Friend</option>
+                                            <option value="Other">Other</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </section>
+
+                            {/* Administrative Information */}
+                            <section>
+                                <div className="flex items-center gap-2 mb-4">
+                                    <h3 className="text-sm font-bold text-green-400 uppercase tracking-wider">Administrative Information</h3>
+                                    <div className="h-px flex-1 bg-green-400/20"></div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Insurance Provider</label>
+                                        <input
+                                            type="text"
+                                            value={formData.insuranceProvider}
+                                            onChange={(e) => setFormData({ ...formData, insuranceProvider: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors"
+                                            placeholder="e.g., PhilHealth, Maxicare"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Insurance Policy Number</label>
+                                        <input
+                                            type="text"
+                                            value={formData.insurancePolicyNumber}
+                                            onChange={(e) => setFormData({ ...formData, insurancePolicyNumber: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors"
+                                            placeholder="Policy number"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">HMO / Corporate Account</label>
+                                        <input
+                                            type="text"
+                                            value={formData.hmoAccount}
+                                            onChange={(e) => setFormData({ ...formData, hmoAccount: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors"
+                                            placeholder="HMO or corporate account name"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Referred By</label>
+                                        <input
+                                            type="text"
+                                            value={formData.referredBy}
+                                            onChange={(e) => setFormData({ ...formData, referredBy: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors"
+                                            placeholder="Referring doctor or source"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">First Visit Date</label>
+                                        <input
+                                            type="date"
+                                            value={formData.firstVisitDate}
+                                            onChange={(e) => setFormData({ ...formData, firstVisitDate: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Preferred Communication</label>
+                                        <select
+                                            value={formData.preferredCommunication}
+                                            onChange={(e) => setFormData({ ...formData, preferredCommunication: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors text-white [&>option]:text-black"
+                                        >
+                                            <option value="">Select method</option>
+                                            <option value="SMS">SMS</option>
+                                            <option value="Email">Email</option>
+                                            <option value="WhatsApp">WhatsApp</option>
+                                            <option value="Phone Call">Phone Call</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </section>
+
                             {/* Health & Medical */}
                             <section>
                                 <div className="flex items-center gap-2 mb-4">
@@ -625,57 +866,142 @@ export default function Patients() {
                                         </select>
                                     </div>
                                     <div className="md:col-span-3">
-                                        <label className="block text-xs text-slate-400 mb-1">Allergies</label>
+                                        <label className="block text-xs text-slate-400 mb-1">Allergies (Drug / Food / Environmental)</label>
                                         <input
                                             type="text"
                                             value={formData.allergies}
                                             onChange={(e) => setFormData({ ...formData, allergies: e.target.value })}
                                             className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors"
-                                            placeholder="e.g., Penicillin, Peanuts, Pollen"
+                                            placeholder="e.g., Penicillin, Peanuts, Pollen, Latex"
                                         />
                                     </div>
                                 </div>
-                                <div>
-                                    <label className="block text-xs text-slate-400 mb-1">Pre-existing Conditions / Medical History</label>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Height (cm)</label>
+                                        <input
+                                            type="number"
+                                            step="0.1"
+                                            value={formData.height}
+                                            onChange={(e) => setFormData({ ...formData, height: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors"
+                                            placeholder="e.g., 170"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Weight (kg)</label>
+                                        <input
+                                            type="number"
+                                            step="0.1"
+                                            value={formData.weight}
+                                            onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors"
+                                            placeholder="e.g., 65"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">BMI</label>
+                                        <input
+                                            type="text"
+                                            readOnly
+                                            value={formData.height && formData.weight ? (() => {
+                                                const h = parseFloat(formData.height) / 100;
+                                                const w = parseFloat(formData.weight);
+                                                if (h > 0 && w > 0) {
+                                                    const bmi = (w / (h * h)).toFixed(1);
+                                                    let category = '';
+                                                    if (bmi < 18.5) category = 'Underweight';
+                                                    else if (bmi < 25) category = 'Normal';
+                                                    else if (bmi < 30) category = 'Overweight';
+                                                    else category = 'Obese';
+                                                    return `${bmi} (${category})`;
+                                                }
+                                                return '';
+                                            })() : 'Auto-computed'}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-slate-400 outline-none cursor-not-allowed"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Current Medications</label>
+                                        <textarea
+                                            rows="2"
+                                            value={formData.currentMedications}
+                                            onChange={(e) => setFormData({ ...formData, currentMedications: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors resize-none"
+                                            placeholder="List current medications, dosages..."
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Smoking / Alcohol Use</label>
+                                        <select
+                                            value={formData.smokingAlcoholUse}
+                                            onChange={(e) => setFormData({ ...formData, smokingAlcoholUse: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors text-white [&>option]:text-black"
+                                        >
+                                            <option value="">Select</option>
+                                            <option value="None">None</option>
+                                            <option value="Smoker">Smoker</option>
+                                            <option value="Occasional Drinker">Occasional Drinker</option>
+                                            <option value="Regular Drinker">Regular Drinker</option>
+                                            <option value="Smoker & Drinker">Smoker & Drinker</option>
+                                            <option value="Former Smoker">Former Smoker</option>
+                                            <option value="Former Drinker">Former Drinker</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="mb-4">
+                                    <label className="block text-xs text-slate-400 mb-1">Past Medical History</label>
                                     <textarea
-                                        rows="3"
+                                        rows="2"
                                         value={formData.medicalHistory}
                                         onChange={(e) => setFormData({ ...formData, medicalHistory: e.target.value })}
                                         className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors resize-none"
                                         placeholder="List important past medical events or chronic conditions..."
                                     />
                                 </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Surgical History</label>
+                                        <textarea
+                                            rows="2"
+                                            value={formData.surgicalHistory}
+                                            onChange={(e) => setFormData({ ...formData, surgicalHistory: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors resize-none"
+                                            placeholder="Previous surgeries and dates..."
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs text-slate-400 mb-1">Family History</label>
+                                        <textarea
+                                            rows="2"
+                                            value={formData.familyHistory}
+                                            onChange={(e) => setFormData({ ...formData, familyHistory: e.target.value })}
+                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors resize-none"
+                                            placeholder="Family medical conditions (diabetes, heart disease, etc.)"
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs text-slate-400 mb-1">Vaccination Status</label>
+                                    <input
+                                        type="text"
+                                        value={formData.vaccinationStatus}
+                                        onChange={(e) => setFormData({ ...formData, vaccinationStatus: e.target.value })}
+                                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors"
+                                        placeholder="e.g., COVID-19 fully vaccinated, Flu shot 2025, etc."
+                                    />
+                                </div>
                             </section>
 
-                            {/* Emergency Contact */}
-                            <section>
-                                <div className="flex items-center gap-2 mb-4">
-                                    <h3 className="text-sm font-bold text-orange-400 uppercase tracking-wider">Emergency Contact</h3>
-                                    <div className="h-px flex-1 bg-orange-400/20"></div>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs text-slate-400 mb-1">Contact Name</label>
-                                        <input
-                                            type="text"
-                                            value={formData.emergencyContactName}
-                                            onChange={(e) => setFormData({ ...formData, emergencyContactName: e.target.value })}
-                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors"
-                                            placeholder="Next of kin or close relative"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs text-slate-400 mb-1">Contact Phone</label>
-                                        <input
-                                            type="tel"
-                                            value={formData.emergencyContactPhone}
-                                            onChange={(e) => setFormData({ ...formData, emergencyContactPhone: e.target.value })}
-                                            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg focus:border-cyan-400 outline-none transition-colors"
-                                            placeholder="Emergency phone number"
-                                        />
-                                    </div>
-                                </div>
-                            </section>
+                            {/* Specialty-Specific Dynamic Fields */}
+                            <SpecialtyFields
+                                specialization={clinicSpecialization}
+                                specialtyData={formData.specialtyData}
+                                onChange={(newSpecialtyData) => setFormData({ ...formData, specialtyData: newSpecialtyData })}
+                                manualOverride={true}
+                            />
 
                             {/* Attachments Section */}
                             <section>

@@ -23,7 +23,7 @@ app.use(cors({
     'https://localhost',            // Capacitor iOS
     'capacitor://localhost',        // Capacitor iOS native
     'http://localhost',             // Capacitor Android
-    'https://life-clinic-management-system.vercel.app',  // Production
+    'https://clinic-central.vercel.app',  // Production
   ],
   credentials: true
 }));

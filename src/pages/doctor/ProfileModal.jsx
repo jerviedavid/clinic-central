@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { FaXmark, FaFloppyDisk, FaUser, FaUserDoctor, FaIdCard, FaStethoscope, FaClock, FaQuoteLeft, FaGraduationCap, FaBriefcase, FaMoneyBillWave } from 'react-icons/fa6'
+import { FaXmark, FaFloppyDisk, FaUser, FaUserDoctor, FaIdCard, FaStethoscope, FaClock, FaQuoteLeft, FaGraduationCap, FaBriefcase, FaMoneyBillWave, FaFileSignature, FaReceipt, FaFilePrescription } from 'react-icons/fa6'
 import { Camera, Upload, Image as ImageIcon, X } from 'lucide-react'
 import api from '../../utils/api'
 import { toast } from 'react-hot-toast'
@@ -12,10 +12,15 @@ export default function ProfileModal({ isOpen, onClose, onUpdate }) {
         fullName: '',
         email: '',
         specialization: '',
+        subspecialty: '',
         licenseNumber: '',
+        prcId: '',
         bio: '',
         consultationFee: '',
         clinicHours: '',
+        digitalSignature: null,
+        ptrTaxId: '',
+        ePrescriptionId: '',
         education: '',
         experience: '',
         profileImage: null
@@ -24,6 +29,7 @@ export default function ProfileModal({ isOpen, onClose, onUpdate }) {
     // Refs for profile image inputs
     const profileImageInputRef = useRef(null)
     const profileCameraInputRef = useRef(null)
+    const signatureInputRef = useRef(null)
 
     useEffect(() => {
         if (isOpen) {
@@ -40,10 +46,15 @@ export default function ProfileModal({ isOpen, onClose, onUpdate }) {
                 fullName: user.fullName || '',
                 email: user.email || '',
                 specialization: doctorProfile?.specialization || '',
+                subspecialty: doctorProfile?.subspecialty || '',
                 licenseNumber: doctorProfile?.licenseNumber || '',
+                prcId: doctorProfile?.prcId || '',
                 bio: doctorProfile?.bio || '',
                 consultationFee: doctorProfile?.consultationFee || '',
                 clinicHours: doctorProfile?.clinicHours || '',
+                digitalSignature: doctorProfile?.digitalSignature || null,
+                ptrTaxId: doctorProfile?.ptrTaxId || '',
+                ePrescriptionId: doctorProfile?.ePrescriptionId || '',
                 education: doctorProfile?.education || '',
                 experience: doctorProfile?.experience || '',
                 profileImage: user.profileImage || null
@@ -255,7 +266,7 @@ export default function ProfileModal({ isOpen, onClose, onUpdate }) {
                             <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-white/5 pb-2">Medical Credentials</h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-400 mb-2">Specialization</label>
+                                    <label className="block text-sm font-medium text-slate-400 mb-2">Specialty</label>
                                     <div className="relative">
                                         <FaStethoscope className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs" />
                                         <input
@@ -268,14 +279,40 @@ export default function ProfileModal({ isOpen, onClose, onUpdate }) {
                                     </div>
                                 </div>
                                 <div>
+                                    <label className="block text-sm font-medium text-slate-400 mb-2">Subspecialty</label>
+                                    <div className="relative">
+                                        <FaStethoscope className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs" />
+                                        <input
+                                            type="text"
+                                            placeholder="e.g. Pediatric Cardiology"
+                                            value={formData.subspecialty}
+                                            onChange={e => setFormData({ ...formData, subspecialty: e.target.value })}
+                                            className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-9 pr-4 outline-none focus:border-blue-400 transition-colors"
+                                        />
+                                    </div>
+                                </div>
+                                <div>
                                     <label className="block text-sm font-medium text-slate-400 mb-2">License Number</label>
                                     <div className="relative">
                                         <FaIdCard className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs" />
                                         <input
                                             type="text"
-                                            placeholder="e.g. PRC-1234567"
+                                            placeholder="e.g. 0123456"
                                             value={formData.licenseNumber}
                                             onChange={e => setFormData({ ...formData, licenseNumber: e.target.value })}
+                                            className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-9 pr-4 outline-none focus:border-blue-400 transition-colors"
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-400 mb-2">PRC / Medical Registration ID</label>
+                                    <div className="relative">
+                                        <FaIdCard className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs" />
+                                        <input
+                                            type="text"
+                                            placeholder="e.g. PRC-1234567"
+                                            value={formData.prcId}
+                                            onChange={e => setFormData({ ...formData, prcId: e.target.value })}
                                             className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-9 pr-4 outline-none focus:border-blue-400 transition-colors"
                                         />
                                     </div>
@@ -313,7 +350,102 @@ export default function ProfileModal({ isOpen, onClose, onUpdate }) {
                             </div>
                         </div>
 
-                        {/* Section 4: Background */}
+                        {/* Section 4: Regulatory & E-Prescription */}
+                        <div>
+                            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-white/5 pb-2">Regulatory & E-Prescription</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-400 mb-2">PTR / Tax ID</label>
+                                    <div className="relative">
+                                        <FaReceipt className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs" />
+                                        <input
+                                            type="text"
+                                            placeholder="For official receipts"
+                                            value={formData.ptrTaxId}
+                                            onChange={e => setFormData({ ...formData, ptrTaxId: e.target.value })}
+                                            className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-9 pr-4 outline-none focus:border-blue-400 transition-colors"
+                                        />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-400 mb-2">E-Prescription ID</label>
+                                    <div className="relative">
+                                        <FaFilePrescription className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs" />
+                                        <input
+                                            type="text"
+                                            placeholder="Electronic prescription identifier"
+                                            value={formData.ePrescriptionId}
+                                            onChange={e => setFormData({ ...formData, ePrescriptionId: e.target.value })}
+                                            className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-9 pr-4 outline-none focus:border-blue-400 transition-colors"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Digital Signature */}
+                            <div>
+                                <label className="block text-sm font-medium text-slate-400 mb-2">Digital Signature (for prescriptions)</label>
+                                <div className="flex items-start gap-4">
+                                    <div className="relative">
+                                        {formData.digitalSignature ? (
+                                            <div className="relative group">
+                                                <img
+                                                    src={formData.digitalSignature}
+                                                    alt="Digital signature"
+                                                    className="h-20 max-w-[200px] rounded-lg border border-white/10 bg-white p-2 object-contain"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setFormData({ ...formData, digitalSignature: null })}
+                                                    className="absolute top-1 right-1 p-1 bg-red-500 hover:bg-red-600 text-white rounded-md opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    title="Remove Signature"
+                                                >
+                                                    <X className="w-3 h-3" />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="h-20 w-[200px] rounded-lg bg-white/5 border-2 border-dashed border-white/20 flex items-center justify-center">
+                                                <FaFileSignature className="w-6 h-6 text-slate-600" />
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="flex-1 space-y-2">
+                                        <p className="text-xs text-slate-400">Upload your digital signature image (PNG with transparent background recommended)</p>
+                                        <input
+                                            ref={signatureInputRef}
+                                            type="file"
+                                            accept="image/*"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0]
+                                                if (!file) return
+                                                if (file.size > 5 * 1024 * 1024) {
+                                                    toast.error('Signature image should be less than 5MB')
+                                                    return
+                                                }
+                                                const reader = new FileReader()
+                                                reader.onloadend = () => {
+                                                    setFormData({ ...formData, digitalSignature: reader.result })
+                                                    toast.success('Signature uploaded')
+                                                }
+                                                reader.readAsDataURL(file)
+                                            }}
+                                            className="hidden"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => signatureInputRef.current?.click()}
+                                            className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 rounded-lg transition-colors border border-amber-500/20"
+                                        >
+                                            <Upload className="w-4 h-4" />
+                                            <span className="text-sm font-medium">Upload Signature</span>
+                                        </button>
+                                        <p className="text-[10px] text-slate-500">Max 5MB. PNG, JPG supported.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Section 5: Background */}
                         <div>
                             <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-white/5 pb-2">Professional Background</h3>
                             <div className="space-y-4">

@@ -1,6 +1,6 @@
-# 📚 Life Clinic Management System - Technical Documentation
+# 📚 Clinic Central - Technical Documentation
 
-> Comprehensive technical documentation for the Life Clinic Management System
+> Comprehensive technical documentation for Clinic Central - Doctor, Receptionist, Prescription, Medicine and Patient Management System
 
 ## 📋 Table of Contents
 
@@ -21,7 +21,7 @@
 
 ## 🏗️ System Overview
 
-The Life Clinic Management System is a full-stack web application built with modern web technologies. It provides comprehensive healthcare management capabilities including patient management, appointment scheduling, prescription management, billing, and role-based access control.
+Clinic Central is a full-stack web application built with modern web technologies. It provides comprehensive healthcare management capabilities including doctor management, receptionist workflows, patient management, appointment scheduling, prescription management, medicine tracking, billing, and role-based access control.
 
 ### Key Features
 - **Multi-role Authentication**: Doctor and Receptionist roles with JWT-based security
@@ -68,7 +68,7 @@ The Life Clinic Management System is a full-stack web application built with mod
 ## 🚀 Installation & Setup Guide
 
 ### Prerequisites
-Before setting up the Life Clinic Management System, ensure you have the following:
+Before setting up Clinic Central, ensure you have the following:
 
 - **Node.js** (v18 or higher)
 - **npm** package manager

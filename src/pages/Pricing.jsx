@@ -73,7 +73,7 @@ export default function Pricing() {
             <header className="bg-white shadow-sm">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
                     <Link to="/" className="text-2xl font-bold text-blue-600">
-                        Life Clinic
+                        Clinic Central
                     </Link>
                     <div className="flex gap-4">
                         <Link
@@ -234,7 +234,7 @@ export default function Pricing() {
             <footer className="bg-gray-900 text-white py-12">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
                     <p className="text-gray-400">
-                        © 2026 Life Clinic Management System. All rights reserved.
+                        © 2026 Clinic Central. All rights reserved.
                     </p>
                 </div>
             </footer>

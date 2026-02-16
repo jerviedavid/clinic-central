@@ -807,10 +807,15 @@ router.post('/profile', async (req, res) => {
             fullName,
             email,
             specialization,
+            subspecialty,
             licenseNumber,
+            prcId,
             bio,
             consultationFee,
             clinicHours,
+            digitalSignature,
+            ptrTaxId,
+            ePrescriptionId,
             education,
             experience,
             profileImage,
@@ -844,30 +849,42 @@ router.post('/profile', async (req, res) => {
             if (existingProfile) {
                 db.prepare(`
                     UPDATE DoctorProfile 
-                    SET specialization = ?, licenseNumber = ?, bio = ?, consultationFee = ?, 
-                        clinicHours = ?, education = ?, experience = ?, updatedAt = CURRENT_TIMESTAMP
+                    SET specialization = ?, subspecialty = ?, licenseNumber = ?, prcId = ?,
+                        bio = ?, consultationFee = ?, clinicHours = ?,
+                        digitalSignature = ?, ptrTaxId = ?, ePrescriptionId = ?,
+                        education = ?, experience = ?, updatedAt = CURRENT_TIMESTAMP
                     WHERE userId = ?
                 `).run(
                     specialization || null,
+                    subspecialty || null,
                     licenseNumber || null,
+                    prcId || null,
                     bio || null,
                     consultationFee ? parseFloat(consultationFee) : null,
                     clinicHours || null,
+                    digitalSignature || null,
+                    ptrTaxId || null,
+                    ePrescriptionId || null,
                     education || null,
                     experience ? parseInt(experience) : null,
                     decoded.userId
                 );
             } else if (specialization || licenseNumber || bio) {
                 db.prepare(`
-                    INSERT INTO DoctorProfile (userId, specialization, licenseNumber, bio, consultationFee, clinicHours, education, experience)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO DoctorProfile (userId, specialization, subspecialty, licenseNumber, prcId, bio, consultationFee, clinicHours, digitalSignature, ptrTaxId, ePrescriptionId, education, experience)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `).run(
                     decoded.userId,
                     specialization || null,
+                    subspecialty || null,
                     licenseNumber || null,
+                    prcId || null,
                     bio || null,
                     consultationFee ? parseFloat(consultationFee) : null,
                     clinicHours || null,
+                    digitalSignature || null,
+                    ptrTaxId || null,
+                    ePrescriptionId || null,
                     education || null,
                     experience ? parseInt(experience) : null
                 );

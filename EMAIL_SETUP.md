@@ -1,6 +1,6 @@
 # Email Configuration Setup Guide
 
-This guide will help you configure email sending functionality for the Life Clinic Management System.
+This guide will help you configure email sending functionality for Clinic Central.
 
 ## Overview
 
@@ -43,7 +43,7 @@ SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=your-email@gmail.com
 SMTP_PASS=your-16-character-app-password
-SMTP_FROM=Life Clinic Management System <noreply@clinic.com>
+SMTP_FROM=Clinic Central <noreply@clinic.com>
 FRONTEND_URL=http://localhost:5173
 ```
 
@@ -62,7 +62,7 @@ If you can't set up Gmail or just want to test, use Ethereal Email (fake SMTP fo
    SMTP_PORT=587
    SMTP_USER=the-username-from-ethereal
    SMTP_PASS=the-password-from-ethereal
-   SMTP_FROM=Life Clinic <noreply@clinic.com>
+   SMTP_FROM=Clinic Central <noreply@clinic.com>
    FRONTEND_URL=http://localhost:5173
    ```
 5. Emails won't actually send but you can view them at https://ethereal.email/messages
@@ -200,7 +200,7 @@ SMTP_USER=your-email@gmail.com
 SMTP_PASS=your-password
 
 # From address shown to recipients
-SMTP_FROM=Life Clinic Management System <noreply@clinic.com>
+SMTP_FROM=Clinic Central <noreply@clinic.com>
 
 # Frontend URL for links in emails
 FRONTEND_URL=http://localhost:5173

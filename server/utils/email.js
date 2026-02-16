@@ -80,17 +80,17 @@ export const sendWelcomeEmail = async (email, fullName, clinicName) => {
     const mailOptions = {
         from: `"Clinic Management System" <${process.env.SMTP_FROM || 'noreply@clinic.com'}>`,
         to: email,
-        subject: 'Welcome to Life Clinic Management System! 🎉',
+        subject: 'Welcome to Clinic Central! 🎉',
         html: `
             <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
                 <div style="text-align: center; margin-bottom: 30px;">
-                    <h1 style="color: #3b82f6; margin-bottom: 10px;">Welcome to Life Clinic! 🎉</h1>
+                    <h1 style="color: #3b82f6; margin-bottom: 10px;">Welcome to Clinic Central! 🎉</h1>
                 </div>
                 
                 <p style="font-size: 16px;">Hello ${fullName},</p>
                 
                 <p style="font-size: 16px; line-height: 1.6;">
-                    Thank you for joining Life Clinic Management System! We're excited to have you on board.
+                    Thank you for joining Clinic Central - Doctor, Receptionist, Prescription, Medicine and Patient Management System! We're excited to have you on board.
                 </p>
                 
                 <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
@@ -135,7 +135,7 @@ export const sendWelcomeEmail = async (email, fullName, clinicName) => {
                 
                 <p style="font-size: 14px; color: #718096;">
                     Best regards,<br>
-                    <strong>The Life Clinic Team</strong>
+                    <strong>The Clinic Central Team</strong>
                 </p>
             </div>
         `,

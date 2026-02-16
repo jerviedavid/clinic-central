@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Life Clinic</string>
-    <string name="title_activity_main">Life Clinic</string>
-    <string name="package_name">com.lifeclinic.app</string>
-    <string name="custom_url_scheme">com.lifeclinic.app</string>
+    <string name="app_name">Clinic Central</string>
+    <string name="title_activity_main">Clinic Central</string>
+    <string name="package_name">com.clinicentral.app</string>
+    <string name="custom_url_scheme">com.clinicentral.app</string>
 </resources>

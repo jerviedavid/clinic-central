@@ -1,6 +1,6 @@
 {
-  "appId": "com.lifeclinic.app",
-  "appName": "Life Clinic",
+  "appId": "com.clinicentral.app",
+  "appName": "Clinic Central",
   "webDir": "dist",
   "server": {
     "androidScheme": "https",
