@@ -1,28 +1,27 @@
 import express from 'express';
-import db from '../db.js';
+import prisma from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
 console.log('[DEBUG] patients.js router file loaded');
 
-// Diagnostic route
 router.get('/ping', (req, res) => {
     res.json({ message: 'patients router is active', timestamp: new Date().toISOString() });
 });
 
-// GET /api/patients - Fetch all patients for the current clinic
+// GET all patients for clinic
 router.get('/', requireAuth, async (req, res) => {
     try {
-        const patients = db.prepare('SELECT * FROM Patient WHERE clinicId = ? ORDER BY createdAt DESC').all(req.user.clinicId);
-        
-        // Parse attachments and specialtyData JSON for each patient
+        const patients = await prisma.patient.findMany({
+            where: { clinicId: req.user.clinicId },
+            orderBy: { createdAt: 'desc' }
+        });
         const parsedPatients = patients.map(p => ({
             ...p,
             attachments: p.attachments ? JSON.parse(p.attachments) : [],
             specialtyData: p.specialtyData ? JSON.parse(p.specialtyData) : {}
         }));
-        
         res.json(parsedPatients);
     } catch (error) {
         console.error('Error fetching patients:', error);
@@ -30,21 +29,17 @@ router.get('/', requireAuth, async (req, res) => {
     }
 });
 
-// GET /api/patients/clinic-specialty - Get the clinic's doctor specialization(s)
+// GET clinic specialty
 router.get('/clinic-specialty', requireAuth, async (req, res) => {
     try {
-        const doctors = db.prepare(`
-            SELECT dp.specialization, dp.subspecialty
-            FROM DoctorProfile dp
-            JOIN ClinicUser cu ON cu.userId = dp.userId
-            JOIN Role r ON r.id = cu.roleId AND r.name = 'DOCTOR'
-            WHERE cu.clinicId = ?
-        `).all(req.user.clinicId);
-
-        const specializations = doctors
-            .map(d => [d.specialization, d.subspecialty].filter(Boolean))
+        const clinicDoctors = await prisma.clinicUser.findMany({
+            where: { clinicId: req.user.clinicId, role: { name: 'DOCTOR' } },
+            include: { user: { include: { doctorProfile: true } } }
+        });
+        const specializations = clinicDoctors
+            .filter(cu => cu.user.doctorProfile)
+            .map(cu => [cu.user.doctorProfile.specialization, cu.user.doctorProfile.subspecialty].filter(Boolean))
             .flat();
-
         res.json({ specializations });
     } catch (error) {
         console.error('Error fetching clinic specialty:', error);
@@ -52,64 +47,62 @@ router.get('/clinic-specialty', requireAuth, async (req, res) => {
     }
 });
 
-// GET /api/patients/:id/history - Fetch appointment, prescription, and billing history
+// GET patient history
 router.get('/:id/history', requireAuth, async (req, res) => {
     console.log(`[DEBUG] Patient History hit. ID: ${req.params.id}, ClinicID: ${req.user.clinicId}`);
     try {
         const { id } = req.params;
         const patientId = parseInt(id);
+        if (isNaN(patientId)) return res.status(400).json({ message: 'Invalid patient ID' });
 
-        if (isNaN(patientId)) {
-            return res.status(400).json({ message: 'Invalid patient ID' });
-        }
-
-        // 1. Verify patient belongs to the clinic
-        const patient = db.prepare('SELECT * FROM Patient WHERE id = ? AND clinicId = ?').get(patientId, req.user.clinicId);
+        const patient = await prisma.patient.findFirst({
+            where: { id: patientId, clinicId: req.user.clinicId }
+        });
         if (!patient) {
             console.log(`[DEBUG] Patient not found or unauthorized. ID: ${patientId}, ClinicID: ${req.user.clinicId}`);
             return res.status(404).json({ message: 'Patient not found or unauthorized' });
         }
 
-        // 2. Fetch Appointments
-        const appointments = db.prepare(`
-            SELECT * FROM Appointment 
-            WHERE patientName = ? AND (patientPhone = ? OR patientEmail = ?)
-            ORDER BY appointmentDate DESC, appointmentTime DESC
-        `).all(patient.fullName, patient.phone, patient.email);
+        const appointments = await prisma.appointment.findMany({
+            where: {
+                patientName: patient.fullName,
+                OR: [
+                    { patientPhone: patient.phone },
+                    { patientEmail: patient.email }
+                ]
+            },
+            orderBy: [{ appointmentDate: 'desc' }, { appointmentTime: 'desc' }]
+        });
 
-        // 3. Fetch Prescriptions
-        const prescriptions = db.prepare(`
-            SELECT * FROM Prescription 
-            WHERE patientName = ? AND (patientPhone = ? OR patientEmail = ?)
-            ORDER BY createdAt DESC
-        `).all(patient.fullName, patient.phone, patient.email);
+        const prescriptions = await prisma.prescription.findMany({
+            where: {
+                patientName: patient.fullName,
+                OR: [
+                    { patientPhone: patient.phone },
+                    { patientEmail: patient.email }
+                ]
+            },
+            orderBy: { createdAt: 'desc' }
+        });
 
-        // 4. Fetch Invoices
-        const invoices = db.prepare(`
-            SELECT * FROM Invoice 
-            WHERE patientName = ? AND (patientPhone = ? OR patientEmail = ?)
-            ORDER BY createdAt DESC
-        `).all(patient.fullName, patient.phone, patient.email);
+        const invoices = await prisma.invoice.findMany({
+            where: {
+                patientName: patient.fullName,
+                OR: [
+                    { patientPhone: patient.phone },
+                    { patientEmail: patient.email }
+                ]
+            },
+            orderBy: { createdAt: 'desc' }
+        });
 
         console.log(`[DEBUG] History results: Appts: ${appointments.length}, Presc: ${prescriptions.length}, Invoices: ${invoices.length}`);
 
         res.json({
-            patient: {
-                ...patient,
-                attachments: patient.attachments ? JSON.parse(patient.attachments) : []
-            },
-            appointments: appointments.map(a => ({
-                ...a,
-                vitalSigns: a.vitalSigns ? JSON.parse(a.vitalSigns) : null
-            })),
-            prescriptions: prescriptions.map(p => ({
-                ...p,
-                medicines: p.medicines ? JSON.parse(p.medicines) : []
-            })),
-            invoices: invoices.map(i => ({
-                ...i,
-                items: i.items ? JSON.parse(i.items) : []
-            }))
+            patient: { ...patient, attachments: patient.attachments ? JSON.parse(patient.attachments) : [] },
+            appointments: appointments.map(a => ({ ...a, vitalSigns: a.vitalSigns ? JSON.parse(a.vitalSigns) : null })),
+            prescriptions: prescriptions.map(p => ({ ...p, medicines: p.medicines ? JSON.parse(p.medicines) : [] })),
+            invoices: invoices.map(i => ({ ...i, items: i.items ? JSON.parse(i.items) : [] }))
         });
     } catch (error) {
         console.error('Error fetching patient history:', error);
@@ -117,114 +110,87 @@ router.get('/:id/history', requireAuth, async (req, res) => {
     }
 });
 
-// POST /api/patients - Create a new patient
+// POST create patient
 router.post('/', requireAuth, requireRole(['RECEPTIONIST', 'ADMIN']), async (req, res) => {
     try {
         const {
-            fullName,
-            dateOfBirth,
-            gender,
-            civilStatus,
-            nationalId,
-            phone,
-            email,
-            address,
-            emergencyContactName,
-            emergencyContactPhone,
-            emergencyContactRelationship,
-            insuranceProvider,
-            insurancePolicyNumber,
-            hmoAccount,
-            referredBy,
-            firstVisitDate,
-            preferredCommunication,
-            bloodType,
-            allergies,
-            currentMedications,
-            medicalHistory,
-            surgicalHistory,
-            familyHistory,
-            smokingAlcoholUse,
-            height,
-            weight,
-            vaccinationStatus,
-            profileImage,
-            attachments,
-            specialtyData
-        } = req.body;
-
-        if (!fullName) {
-            return res.status(400).json({ message: 'Full name is required' });
-        }
-
-        const result = db.prepare(`
-            INSERT INTO Patient (
-                fullName, dateOfBirth, gender, civilStatus, nationalId,
-                phone, email, address,
-                emergencyContactName, emergencyContactPhone, emergencyContactRelationship,
-                insuranceProvider, insurancePolicyNumber, hmoAccount, referredBy,
-                firstVisitDate, preferredCommunication,
-                bloodType, allergies, currentMedications, medicalHistory,
-                surgicalHistory, familyHistory, smokingAlcoholUse,
-                height, weight, vaccinationStatus,
-                profileImage, attachments, specialtyData, clinicId
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-            fullName, dateOfBirth, gender, civilStatus, nationalId,
-            phone, email, address,
+            fullName, dateOfBirth, gender, civilStatus, nationalId, phone, email, address,
             emergencyContactName, emergencyContactPhone, emergencyContactRelationship,
             insuranceProvider, insurancePolicyNumber, hmoAccount, referredBy,
             firstVisitDate, preferredCommunication,
             bloodType, allergies, currentMedications, medicalHistory,
             surgicalHistory, familyHistory, smokingAlcoholUse,
-            height || null, weight || null, vaccinationStatus,
-            profileImage || null,
-            attachments ? JSON.stringify(attachments) : null,
-            specialtyData ? JSON.stringify(specialtyData) : null,
-            req.user.clinicId
-        );
+            height, weight, vaccinationStatus, profileImage, attachments, specialtyData
+        } = req.body;
+        if (!fullName) return res.status(400).json({ message: 'Full name is required' });
 
-        res.status(201).json({ id: result.lastInsertRowid, message: 'Patient created successfully' });
+        const patient = await prisma.patient.create({
+            data: {
+                fullName,
+                dateOfBirth,
+                gender,
+                civilStatus,
+                nationalId,
+                phone,
+                email,
+                address,
+                emergencyContactName,
+                emergencyContactPhone,
+                emergencyContactRelationship,
+                insuranceProvider,
+                insurancePolicyNumber,
+                hmoAccount,
+                referredBy,
+                firstVisitDate,
+                preferredCommunication,
+                bloodType,
+                allergies,
+                currentMedications,
+                medicalHistory,
+                surgicalHistory,
+                familyHistory,
+                smokingAlcoholUse,
+                height: height || null,
+                weight: weight || null,
+                vaccinationStatus,
+                profileImage: profileImage || null,
+                attachments: attachments ? JSON.stringify(attachments) : null,
+                specialtyData: specialtyData ? JSON.stringify(specialtyData) : null,
+                clinicId: req.user.clinicId
+            }
+        });
+        res.status(201).json({ id: patient.id, message: 'Patient created successfully' });
     } catch (error) {
         console.error('Error creating patient:', error);
         res.status(500).json({ message: 'Error creating patient' });
     }
 });
 
-// PATCH /api/patients/:id - Update patient details
+// PATCH update patient
 router.patch('/:id', requireAuth, requireRole(['RECEPTIONIST', 'ADMIN']), async (req, res) => {
     try {
         const { id } = req.params;
         const updates = req.body;
 
-        // Verify patient belongs to the clinic
-        const patient = db.prepare('SELECT id FROM Patient WHERE id = ? AND clinicId = ?').get(id, req.user.clinicId);
-        if (!patient) {
-            return res.status(404).json({ message: 'Patient not found or unauthorized' });
-        }
+        const patient = await prisma.patient.findFirst({
+            where: { id: parseInt(id), clinicId: req.user.clinicId }
+        });
+        if (!patient) return res.status(404).json({ message: 'Patient not found or unauthorized' });
 
-        // Handle JSON serialization for attachments
         if (updates.attachments && Array.isArray(updates.attachments)) {
             updates.attachments = JSON.stringify(updates.attachments);
         }
-
-        // Handle JSON serialization for specialtyData
         if (updates.specialtyData && typeof updates.specialtyData === 'object') {
             updates.specialtyData = JSON.stringify(updates.specialtyData);
         }
 
         const fields = Object.keys(updates).filter(key => key !== 'id' && key !== 'clinicId' && key !== 'createdAt');
-        if (fields.length === 0) {
-            return res.status(400).json({ message: 'No fields to update' });
-        }
+        if (fields.length === 0) return res.status(400).json({ message: 'No fields to update' });
 
-        const setClause = fields.map(field => `${field} = ?`).join(', ');
-        const values = fields.map(field => updates[field]);
-        values.push(new Date().toISOString()); // updatedAt
-        values.push(id);
+        const data = {};
+        fields.forEach(field => { data[field] = updates[field]; });
 
-        db.prepare(`UPDATE Patient SET ${setClause}, updatedAt = ? WHERE id = ?`).run(...values);
-
+        await prisma.patient.update({ where: { id: parseInt(id) }, data });
         res.json({ message: 'Patient updated successfully' });
     } catch (error) {
         console.error('Error updating patient:', error);
@@ -232,24 +198,21 @@ router.patch('/:id', requireAuth, requireRole(['RECEPTIONIST', 'ADMIN']), async 
     }
 });
 
-// DELETE /api/patients/:id - Delete a patient
+// DELETE patient
 router.delete('/:id', requireAuth, requireRole(['ADMIN']), async (req, res) => {
     try {
         const { id } = req.params;
+        const patient = await prisma.patient.findFirst({
+            where: { id: parseInt(id), clinicId: req.user.clinicId }
+        });
+        if (!patient) return res.status(404).json({ message: 'Patient not found or unauthorized' });
 
-        // Verify patient belongs to the clinic
-        const patient = db.prepare('SELECT id FROM Patient WHERE id = ? AND clinicId = ?').get(id, req.user.clinicId);
-        if (!patient) {
-            return res.status(404).json({ message: 'Patient not found or unauthorized' });
-        }
-
-        db.prepare('DELETE FROM Patient WHERE id = ?').run(id);
+        await prisma.patient.delete({ where: { id: parseInt(id) } });
         res.json({ message: 'Patient deleted successfully' });
     } catch (error) {
         console.error('Error deleting patient:', error);
         res.status(500).json({ message: 'Error deleting patient' });
     }
 });
-
 
 export default router;

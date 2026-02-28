@@ -1,0 +1,59 @@
+{
+  "User": [
+    {
+      "id": 1,
+      "email": "danilwilliam401@gmail.com",
+      "password": "$2b$10$sapLlJqZSCkRd8zOnEux.ObPL7t2tCq18SZeiVAQExRaM5FAENP4y",
+      "fullName": "Test User",
+      "profileImage": null,
+      "emailVerified": 1,
+      "verificationToken": null,
+      "verificationExpires": null,
+      "createdAt": "2026-02-16T07:38:10.836Z",
+      "lastLogin": "2026-02-16 07:39:35"
+    }
+  ],
+  "DoctorProfile": [],
+  "ReceptionistProfile": [],
+  "Appointment": [],
+  "Prescription": [],
+  "Medicine": [],
+  "Invoice": [],
+  "Clinic": [
+    {
+      "id": 1,
+      "name": "Default Clinic",
+      "address": "123 Main Street",
+      "phone": "555-0100",
+      "email": "danilwilliam401@gmail.com",
+      "createdAt": "2026-02-16T07:40:23.852Z"
+    }
+  ],
+  "Role": [
+    {
+      "id": 1,
+      "name": "DOCTOR"
+    },
+    {
+      "id": 2,
+      "name": "RECEPTIONIST"
+    },
+    {
+      "id": 3,
+      "name": "ADMIN"
+    }
+  ],
+  "ClinicUser": [
+    {
+      "id": 1,
+      "userId": 1,
+      "clinicId": 1,
+      "roleId": 3,
+      "createdAt": "2026-02-16T07:40:23.867Z"
+    }
+  ],
+  "Invite": [],
+  "Patient": [],
+  "Plan": [],
+  "Subscription": []
+}

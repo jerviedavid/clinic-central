@@ -1,62 +1,31 @@
-import db from '../db.js';
+import prisma from '../db.js';
 
-/**
- * Middleware to require an active subscription
- * Allows trialing and active subscriptions
- * Blocks past_due and canceled subscriptions
- */
-export function requireActiveSubscription(req, res, next) {
+// Middleware: require active subscription
+export async function requireActiveSubscription(req, res, next) {
     try {
         const clinicId = req.user.clinicId;
+        if (!clinicId) return res.status(400).json({ message: 'No clinic context found' });
 
-        if (!clinicId) {
-            return res.status(400).json({ message: 'No clinic context found' });
-        }
+        const subscription = await prisma.subscription.findUnique({
+            where: { clinicId },
+            include: { plan: true }
+        });
 
-        // Get subscription for this clinic
-        const subscription = db.prepare(`
-            SELECT s.*, p.name as planName
-            FROM Subscription s
-            JOIN Plan p ON s.planId = p.id
-            WHERE s.clinicId = ?
-        `).get(clinicId);
+        if (!subscription) return res.status(403).json({ message: 'No active subscription found', requiresUpgrade: true });
 
-        if (!subscription) {
-            return res.status(403).json({
-                message: 'No active subscription found',
-                requiresUpgrade: true
-            });
-        }
-
-        // Check subscription status
         if (subscription.status === 'canceled' || subscription.status === 'past_due') {
-            return res.status(403).json({
-                message: 'Your subscription is not active. Please update your billing information.',
-                status: subscription.status,
-                requiresUpgrade: true
-            });
+            return res.status(403).json({ message: 'Your subscription is not active. Please update your billing information.', status: subscription.status, requiresUpgrade: true });
         }
 
-        // Check if trial has expired
         if (subscription.status === 'trialing' && subscription.trialEndsAt) {
             const trialEnd = new Date(subscription.trialEndsAt);
-            const now = new Date();
-
-            if (now > trialEnd) {
-                // Trial expired - update status to past_due
-                db.prepare('UPDATE Subscription SET status = ? WHERE id = ?')
-                    .run('past_due', subscription.id);
-
-                return res.status(403).json({
-                    message: 'Your trial has expired. Please upgrade to continue.',
-                    requiresUpgrade: true,
-                    trialExpired: true
-                });
+            if (new Date() > trialEnd) {
+                await prisma.subscription.update({ where: { id: subscription.id }, data: { status: 'past_due' } });
+                return res.status(403).json({ message: 'Your trial has expired. Please upgrade to continue.', requiresUpgrade: true, trialExpired: true });
             }
         }
 
-        // Attach subscription to request for later use
-        req.subscription = subscription;
+        req.subscription = { ...subscription, planName: subscription.plan.name };
         next();
     } catch (error) {
         console.error('Subscription check error:', error);
@@ -64,41 +33,20 @@ export function requireActiveSubscription(req, res, next) {
     }
 }
 
-/**
- * Middleware to require a specific plan feature
- * @param {string} feature - Feature name (e.g., 'multi_clinic', 'api_access')
- */
+// Middleware factory: require plan feature
 export function requirePlanFeature(feature) {
-    return (req, res, next) => {
+    return async (req, res, next) => {
         try {
             const clinicId = req.user.clinicId;
-
-            // Get plan features
-            const subscription = db.prepare(`
-                SELECT p.features, p.name
-                FROM Subscription s
-                JOIN Plan p ON s.planId = p.id
-                WHERE s.clinicId = ?
-            `).get(clinicId);
-
-            if (!subscription) {
-                return res.status(403).json({
-                    message: 'No subscription found',
-                    requiresUpgrade: true
-                });
-            }
-
-            const features = subscription.features ? JSON.parse(subscription.features) : [];
-
+            const subscription = await prisma.subscription.findUnique({
+                where: { clinicId },
+                include: { plan: { select: { features: true, name: true } } }
+            });
+            if (!subscription) return res.status(403).json({ message: 'No subscription found', requiresUpgrade: true });
+            const features = subscription.plan.features ? JSON.parse(subscription.plan.features) : [];
             if (!features.includes(feature)) {
-                return res.status(403).json({
-                    message: `This feature requires a higher plan`,
-                    feature: feature,
-                    currentPlan: subscription.name,
-                    requiresUpgrade: true
-                });
+                return res.status(403).json({ message: 'This feature requires a higher plan', feature, currentPlan: subscription.plan.name, requiresUpgrade: true });
             }
-
             next();
         } catch (error) {
             console.error('Feature check error:', error);
@@ -107,72 +55,40 @@ export function requirePlanFeature(feature) {
     };
 }
 
-/**
- * Middleware to check staff limits based on plan
- * @param {string} roleType - 'DOCTOR' or 'RECEPTIONIST'
- */
+// Middleware factory: check staff limits
 export function checkStaffLimit(roleType) {
-    return (req, res, next) => {
+    return async (req, res, next) => {
         try {
             const clinicId = req.user.clinicId;
+            const subscription = await prisma.subscription.findUnique({
+                where: { clinicId },
+                include: { plan: { select: { maxDoctors: true, maxStaff: true, name: true } } }
+            });
+            if (!subscription) return res.status(403).json({ message: 'No subscription found', requiresUpgrade: true });
 
-            // Get plan limits
-            const subscription = db.prepare(`
-                SELECT p.maxDoctors, p.maxStaff, p.name
-                FROM Subscription s
-                JOIN Plan p ON s.planId = p.id
-                WHERE s.clinicId = ?
-            `).get(clinicId);
+            const role = await prisma.role.findUnique({ where: { name: roleType } });
+            if (!role) return res.status(400).json({ message: 'Invalid role type' });
 
-            if (!subscription) {
-                return res.status(403).json({
-                    message: 'No subscription found',
-                    requiresUpgrade: true
+            const currentCount = await prisma.clinicUser.count({ where: { clinicId, roleId: role.id } });
+
+            if (roleType === 'DOCTOR' && subscription.plan.maxDoctors !== null) {
+                if (currentCount >= subscription.plan.maxDoctors) {
+                    return res.status(403).json({
+                        message: `Your ${subscription.plan.name} plan allows up to ${subscription.plan.maxDoctors} doctor(s). Please upgrade to add more.`,
+                        currentCount, limit: subscription.plan.maxDoctors, requiresUpgrade: true
+                    });
+                }
+            } else if (subscription.plan.maxStaff !== null) {
+                const totalStaff = await prisma.clinicUser.count({
+                    where: { clinicId, role: { name: { notIn: ['ADMIN', 'SUPER_ADMIN'] } } }
                 });
-            }
-
-            // Count current staff
-            const roleId = db.prepare('SELECT id FROM Role WHERE name = ?').get(roleType)?.id;
-
-            if (!roleId) {
-                return res.status(400).json({ message: 'Invalid role type' });
-            }
-
-            const currentCount = db.prepare(`
-                SELECT COUNT(*) as count
-                FROM ClinicUser
-                WHERE clinicId = ? AND roleId = ?
-            `).get(clinicId, roleId).count;
-
-            // Check limits
-            if (roleType === 'DOCTOR' && subscription.maxDoctors !== null) {
-                if (currentCount >= subscription.maxDoctors) {
+                if (totalStaff >= subscription.plan.maxStaff) {
                     return res.status(403).json({
-                        message: `Your ${subscription.name} plan allows up to ${subscription.maxDoctors} doctor(s). Please upgrade to add more.`,
-                        currentCount: currentCount,
-                        limit: subscription.maxDoctors,
-                        requiresUpgrade: true
-                    });
-                }
-            } else if (subscription.maxStaff !== null) {
-                // Count total staff (all roles except ADMIN and SUPER_ADMIN)
-                const totalStaff = db.prepare(`
-                    SELECT COUNT(*) as count
-                    FROM ClinicUser cu
-                    JOIN Role r ON cu.roleId = r.id
-                    WHERE cu.clinicId = ? AND r.name NOT IN ('ADMIN', 'SUPER_ADMIN')
-                `).get(clinicId).count;
-
-                if (totalStaff >= subscription.maxStaff) {
-                    return res.status(403).json({
-                        message: `Your ${subscription.name} plan allows up to ${subscription.maxStaff} staff member(s). Please upgrade to add more.`,
-                        currentCount: totalStaff,
-                        limit: subscription.maxStaff,
-                        requiresUpgrade: true
+                        message: `Your ${subscription.plan.name} plan allows up to ${subscription.plan.maxStaff} staff member(s). Please upgrade to add more.`,
+                        currentCount: totalStaff, limit: subscription.plan.maxStaff, requiresUpgrade: true
                     });
                 }
             }
-
             next();
         } catch (error) {
             console.error('Staff limit check error:', error);
@@ -181,44 +97,30 @@ export function checkStaffLimit(roleType) {
     };
 }
 
-/**
- * Helper function to get subscription details
- * Can be used in routes without middleware
- */
-export function getSubscriptionDetails(clinicId) {
+// Helper: get subscription details (async)
+export async function getSubscriptionDetails(clinicId) {
     try {
-        const subscription = db.prepare(`
-            SELECT 
-                s.*,
-                p.name as planName,
-                p.priceMonthly,
-                p.priceYearly,
-                p.maxDoctors,
-                p.maxStaff,
-                p.multiClinic,
-                p.features
-            FROM Subscription s
-            JOIN Plan p ON s.planId = p.id
-            WHERE s.clinicId = ?
-        `).get(clinicId);
-
-        if (!subscription) {
-            return null;
-        }
-
-        // Calculate trial days left
+        const subscription = await prisma.subscription.findUnique({
+            where: { clinicId },
+            include: { plan: true }
+        });
+        if (!subscription) return null;
         let trialDaysLeft = null;
         if (subscription.status === 'trialing' && subscription.trialEndsAt) {
             const trialEnd = new Date(subscription.trialEndsAt);
-            const now = new Date();
-            const diffTime = trialEnd - now;
+            const diffTime = trialEnd - new Date();
             trialDaysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             if (trialDaysLeft < 0) trialDaysLeft = 0;
         }
-
         return {
             ...subscription,
-            features: subscription.features ? JSON.parse(subscription.features) : [],
+            planName: subscription.plan.name,
+            priceMonthly: subscription.plan.priceMonthly,
+            priceYearly: subscription.plan.priceYearly,
+            maxDoctors: subscription.plan.maxDoctors,
+            maxStaff: subscription.plan.maxStaff,
+            multiClinic: subscription.plan.multiClinic,
+            features: subscription.plan.features ? JSON.parse(subscription.plan.features) : [],
             trialDaysLeft
         };
     } catch (error) {

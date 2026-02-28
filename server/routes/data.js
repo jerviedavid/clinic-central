@@ -1,5 +1,5 @@
 import express from 'express';
-import db from '../db.js';
+import prisma from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -7,13 +7,13 @@ const router = express.Router();
 // Doctors - Clinic-aware
 router.get('/doctors', requireAuth, async (req, res) => {
     try {
-        const doctors = db.prepare(`
-            SELECT u.id, u.fullName, u.email, r.name as role
-            FROM User u
-            JOIN ClinicUser cu ON u.id = cu.userId
-            JOIN Role r ON cu.roleId = r.id
-            WHERE cu.clinicId = ? AND r.name = 'DOCTOR'
-        `).all(req.user.clinicId);
+        const clinicUserDoctors = await prisma.clinicUser.findMany({
+            where: { clinicId: req.user.clinicId, role: { name: 'DOCTOR' } },
+            include: { user: { select: { id: true, fullName: true, email: true } }, role: { select: { name: true } } }
+        });
+        const doctors = clinicUserDoctors.map(cu => ({
+            id: cu.user.id, fullName: cu.user.fullName, email: cu.user.email, role: cu.role.name
+        }));
         res.json(doctors);
     } catch (error) {
         console.error('Error fetching doctors:', error);
@@ -21,18 +21,13 @@ router.get('/doctors', requireAuth, async (req, res) => {
     }
 });
 
-// Appointments - Requires authentication
+// Appointments
 router.get('/appointments', requireAuth, async (req, res) => {
     try {
-        const appointments = db.prepare('SELECT * FROM Appointment ORDER BY createdAt DESC').all();
+        const appointments = await prisma.appointment.findMany({ orderBy: { createdAt: 'desc' } });
         res.json(appointments.map(a => ({
             ...a,
-            vitalSigns: a.vitalSigns ? JSON.parse(a.vitalSigns) : {
-                bloodPressure: '',
-                heartRate: '',
-                temperature: '',
-                weight: ''
-            }
+            vitalSigns: a.vitalSigns ? JSON.parse(a.vitalSigns) : { bloodPressure: '', heartRate: '', temperature: '', weight: '' }
         })));
     } catch (error) {
         res.status(500).json({ message: 'Error fetching appointments' });
@@ -41,23 +36,17 @@ router.get('/appointments', requireAuth, async (req, res) => {
 
 router.get('/appointments/:id', requireAuth, async (req, res) => {
     try {
-        const appointment = db.prepare('SELECT * FROM Appointment WHERE id = ?').get(req.params.id);
+        const appointment = await prisma.appointment.findUnique({ where: { id: parseInt(req.params.id) } });
         if (!appointment) return res.status(404).json({ message: 'Appointment not found' });
         res.json({
             ...appointment,
-            vitalSigns: appointment.vitalSigns ? JSON.parse(appointment.vitalSigns) : {
-                bloodPressure: '',
-                heartRate: '',
-                temperature: '',
-                weight: ''
-            }
+            vitalSigns: appointment.vitalSigns ? JSON.parse(appointment.vitalSigns) : { bloodPressure: '', heartRate: '', temperature: '', weight: '' }
         });
     } catch (error) {
         res.status(500).json({ message: 'Error fetching appointment' });
     }
 });
 
-// Any authenticated user can create appointments
 router.post('/appointments', requireAuth, async (req, res) => {
     try {
         const {
@@ -65,28 +54,21 @@ router.post('/appointments', requireAuth, async (req, res) => {
             doctorName, appointmentDate, appointmentTime, appointmentType,
             status, tokenNumber, notes, symptoms, medicalHistory, medications, vitalSigns
         } = req.body;
-
-        const info = db.prepare(
-            `INSERT INTO Appointment (
+        const result = await prisma.appointment.create({
+            data: {
                 patientName, patientPhone, patientEmail, patientAge, patientGender,
                 doctorName, appointmentDate, appointmentTime, appointmentType,
-                status, tokenNumber, notes, symptoms, medicalHistory, medications, vitalSigns
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-            patientName, patientPhone, patientEmail, patientAge, patientGender,
-            doctorName, appointmentDate, appointmentTime, appointmentType,
-            status, tokenNumber, notes, symptoms, medicalHistory, medications,
-            vitalSigns ? JSON.stringify(vitalSigns) : null
-        );
-
-        res.status(201).json({ id: info.lastInsertRowid, ...req.body });
+                status, tokenNumber, notes, symptoms, medicalHistory, medications,
+                vitalSigns: vitalSigns ? JSON.stringify(vitalSigns) : null
+            }
+        });
+        res.status(201).json({ id: result.id, ...req.body });
     } catch (error) {
         console.error('Error creating appointment:', error);
         res.status(500).json({ message: 'Error creating appointment' });
     }
 });
 
-// Any authenticated user can update appointments
 router.patch('/appointments/:id', requireAuth, async (req, res) => {
     try {
         const {
@@ -94,35 +76,29 @@ router.patch('/appointments/:id', requireAuth, async (req, res) => {
             doctorName, appointmentDate, appointmentTime, appointmentType,
             status, tokenNumber, notes, symptoms, medicalHistory, medications, vitalSigns
         } = req.body;
+        // Build data object with only defined fields (COALESCE equivalent)
+        const data = {};
+        if (patientName !== undefined) data.patientName = patientName;
+        if (patientPhone !== undefined) data.patientPhone = patientPhone;
+        if (patientEmail !== undefined) data.patientEmail = patientEmail;
+        if (patientAge !== undefined) data.patientAge = patientAge;
+        if (patientGender !== undefined) data.patientGender = patientGender;
+        if (doctorName !== undefined) data.doctorName = doctorName;
+        if (appointmentDate !== undefined) data.appointmentDate = appointmentDate;
+        if (appointmentTime !== undefined) data.appointmentTime = appointmentTime;
+        if (appointmentType !== undefined) data.appointmentType = appointmentType;
+        if (status !== undefined) data.status = status;
+        if (tokenNumber !== undefined) data.tokenNumber = tokenNumber;
+        if (notes !== undefined) data.notes = notes;
+        if (symptoms !== undefined) data.symptoms = symptoms;
+        if (medicalHistory !== undefined) data.medicalHistory = medicalHistory;
+        if (medications !== undefined) data.medications = medications;
+        if (vitalSigns !== undefined) data.vitalSigns = JSON.stringify(vitalSigns);
 
-        db.prepare(`
-            UPDATE Appointment SET 
-                patientName = COALESCE(?, patientName),
-                patientPhone = COALESCE(?, patientPhone),
-                patientEmail = COALESCE(?, patientEmail),
-                patientAge = COALESCE(?, patientAge),
-                patientGender = COALESCE(?, patientGender),
-                doctorName = COALESCE(?, doctorName),
-                appointmentDate = COALESCE(?, appointmentDate),
-                appointmentTime = COALESCE(?, appointmentTime),
-                appointmentType = COALESCE(?, appointmentType),
-                status = COALESCE(?, status),
-                tokenNumber = COALESCE(?, tokenNumber),
-                notes = COALESCE(?, notes),
-                symptoms = COALESCE(?, symptoms),
-                medicalHistory = COALESCE(?, medicalHistory),
-                medications = COALESCE(?, medications),
-                vitalSigns = COALESCE(?, vitalSigns),
-                updatedAt = CURRENT_TIMESTAMP
-            WHERE id = ?
-        `).run(
-            patientName, patientPhone, patientEmail, patientAge, patientGender,
-            doctorName, appointmentDate, appointmentTime, appointmentType,
-            status, tokenNumber, notes, symptoms, medicalHistory, medications,
-            vitalSigns ? JSON.stringify(vitalSigns) : null,
-            req.params.id
-        );
-
+        await prisma.appointment.update({
+            where: { id: parseInt(req.params.id) },
+            data
+        });
         res.json({ id: req.params.id, ...req.body });
     } catch (error) {
         console.error('Error updating appointment:', error);
@@ -130,14 +106,11 @@ router.patch('/appointments/:id', requireAuth, async (req, res) => {
     }
 });
 
-// Prescriptions - Requires authentication
+// Prescriptions
 router.get('/prescriptions', requireAuth, async (req, res) => {
     try {
-        const prescriptions = db.prepare('SELECT * FROM Prescription ORDER BY createdAt DESC').all();
-        res.json(prescriptions.map(p => ({
-            ...p,
-            medicines: p.medicines ? JSON.parse(p.medicines) : []
-        })));
+        const prescriptions = await prisma.prescription.findMany({ orderBy: { createdAt: 'desc' } });
+        res.json(prescriptions.map(p => ({ ...p, medicines: p.medicines ? JSON.parse(p.medicines) : [] })));
     } catch (error) {
         res.status(500).json({ message: 'Error fetching prescriptions' });
     }
@@ -145,18 +118,14 @@ router.get('/prescriptions', requireAuth, async (req, res) => {
 
 router.get('/prescriptions/:id', requireAuth, async (req, res) => {
     try {
-        const prescription = db.prepare('SELECT * FROM Prescription WHERE id = ?').get(req.params.id);
+        const prescription = await prisma.prescription.findUnique({ where: { id: parseInt(req.params.id) } });
         if (!prescription) return res.status(404).json({ message: 'Prescription not found' });
-        res.json({
-            ...prescription,
-            medicines: prescription.medicines ? JSON.parse(prescription.medicines) : []
-        });
+        res.json({ ...prescription, medicines: prescription.medicines ? JSON.parse(prescription.medicines) : [] });
     } catch (error) {
         res.status(500).json({ message: 'Error fetching prescription' });
     }
 });
 
-// Only DOCTOR can create prescriptions
 router.post('/prescriptions', requireAuth, requireRole(['DOCTOR']), async (req, res) => {
     try {
         const {
@@ -164,28 +133,21 @@ router.post('/prescriptions', requireAuth, requireRole(['DOCTOR']), async (req, 
             prescriptionDate, diagnosis, symptoms, doctorId, doctorName, medicines,
             instructions, followUpDate, status, notes
         } = req.body;
-
-        const info = db.prepare(
-            `INSERT INTO Prescription (
+        const result = await prisma.prescription.create({
+            data: {
                 patientName, patientAge, patientGender, patientPhone, patientEmail,
-                prescriptionDate, diagnosis, symptoms, doctorId, doctorName, medicines, 
+                prescriptionDate, diagnosis, symptoms, doctorId, doctorName,
+                medicines: JSON.stringify(medicines || []),
                 instructions, followUpDate, status, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-            patientName, patientAge, patientGender, patientPhone, patientEmail,
-            prescriptionDate, diagnosis, symptoms, doctorId, doctorName,
-            JSON.stringify(medicines || []),
-            instructions, followUpDate, status, notes
-        );
-
-        res.status(201).json({ id: info.lastInsertRowid, ...req.body });
+            }
+        });
+        res.status(201).json({ id: result.id, ...req.body });
     } catch (error) {
         console.error('Error creating prescription:', error);
         res.status(500).json({ message: 'Error creating prescription' });
     }
 });
 
-// Only DOCTOR can update prescriptions
 router.patch('/prescriptions/:id', requireAuth, requireRole(['DOCTOR']), async (req, res) => {
     try {
         const {
@@ -193,34 +155,28 @@ router.patch('/prescriptions/:id', requireAuth, requireRole(['DOCTOR']), async (
             prescriptionDate, diagnosis, symptoms, doctorId, doctorName, medicines,
             instructions, followUpDate, status, notes
         } = req.body;
+        // Build data object with only defined fields
+        const data = {};
+        if (patientName !== undefined) data.patientName = patientName;
+        if (patientAge !== undefined) data.patientAge = patientAge;
+        if (patientGender !== undefined) data.patientGender = patientGender;
+        if (patientPhone !== undefined) data.patientPhone = patientPhone;
+        if (patientEmail !== undefined) data.patientEmail = patientEmail;
+        if (prescriptionDate !== undefined) data.prescriptionDate = prescriptionDate;
+        if (diagnosis !== undefined) data.diagnosis = diagnosis;
+        if (symptoms !== undefined) data.symptoms = symptoms;
+        if (doctorId !== undefined) data.doctorId = doctorId;
+        if (doctorName !== undefined) data.doctorName = doctorName;
+        if (medicines !== undefined) data.medicines = JSON.stringify(medicines);
+        if (instructions !== undefined) data.instructions = instructions;
+        if (followUpDate !== undefined) data.followUpDate = followUpDate;
+        if (status !== undefined) data.status = status;
+        if (notes !== undefined) data.notes = notes;
 
-        db.prepare(`
-            UPDATE Prescription SET 
-                patientName = COALESCE(?, patientName),
-                patientAge = COALESCE(?, patientAge),
-                patientGender = COALESCE(?, patientGender),
-                patientPhone = COALESCE(?, patientPhone),
-                patientEmail = COALESCE(?, patientEmail),
-                prescriptionDate = COALESCE(?, prescriptionDate),
-                diagnosis = COALESCE(?, diagnosis),
-                symptoms = COALESCE(?, symptoms),
-                doctorId = COALESCE(?, doctorId),
-                doctorName = COALESCE(?, doctorName),
-                medicines = COALESCE(?, medicines),
-                instructions = COALESCE(?, instructions),
-                followUpDate = COALESCE(?, followUpDate),
-                status = COALESCE(?, status),
-                notes = COALESCE(?, notes),
-                updatedAt = CURRENT_TIMESTAMP
-            WHERE id = ?
-        `).run(
-            patientName, patientAge, patientGender, patientPhone, patientEmail,
-            prescriptionDate, diagnosis, symptoms, doctorId, doctorName,
-            medicines ? JSON.stringify(medicines) : null,
-            instructions, followUpDate, status, notes,
-            req.params.id
-        );
-
+        await prisma.prescription.update({
+            where: { id: parseInt(req.params.id) },
+            data
+        });
         res.json({ id: req.params.id, ...req.body });
     } catch (error) {
         console.error('Error updating prescription:', error);
@@ -228,10 +184,9 @@ router.patch('/prescriptions/:id', requireAuth, requireRole(['DOCTOR']), async (
     }
 });
 
-// Only DOCTOR can delete prescriptions
 router.delete('/prescriptions/:id', requireAuth, requireRole(['DOCTOR']), async (req, res) => {
     try {
-        db.prepare('DELETE FROM Prescription WHERE id = ?').run(req.params.id);
+        await prisma.prescription.delete({ where: { id: parseInt(req.params.id) } });
         res.json({ message: 'Prescription deleted' });
     } catch (error) {
         res.status(500).json({ message: 'Error deleting prescription' });
@@ -241,7 +196,7 @@ router.delete('/prescriptions/:id', requireAuth, requireRole(['DOCTOR']), async 
 // Medicines
 router.get('/medicines', async (req, res) => {
     try {
-        const medicines = db.prepare('SELECT * FROM Medicine ORDER BY name ASC').all();
+        const medicines = await prisma.medicine.findMany({ orderBy: { name: 'asc' } });
         res.json(medicines);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching medicines' });
@@ -256,22 +211,15 @@ router.post('/medicines', async (req, res) => {
             storageInstructions, price, stockQuantity, reorderLevel,
             isActive, createdBy
         } = req.body;
-
-        const info = db.prepare(`
-            INSERT INTO Medicine (
+        const result = await prisma.medicine.create({
+            data: {
                 name, category, strength, form, manufacturer, description,
                 sideEffects, contraindications, dosageInstructions,
                 storageInstructions, price, stockQuantity, reorderLevel,
                 isActive, createdBy
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-            name, category, strength, form, manufacturer, description,
-            sideEffects, contraindications, dosageInstructions,
-            storageInstructions, price, stockQuantity, reorderLevel,
-            isActive ? 1 : 0, createdBy
-        );
-
-        res.status(201).json({ id: info.lastInsertRowid, ...req.body });
+            }
+        });
+        res.status(201).json({ id: result.id, ...req.body });
     } catch (error) {
         console.error('Error creating medicine:', error);
         res.status(500).json({ message: 'Error creating medicine' });
@@ -280,20 +228,18 @@ router.post('/medicines', async (req, res) => {
 
 router.patch('/medicines/:id', async (req, res) => {
     try {
-        const fields = Object.keys(req.body);
-        const updates = fields.map(field => `${field} = ?`).join(', ');
-        const values = fields.map(field => {
-            if (field === 'isActive') return req.body[field] ? 1 : 0;
-            return req.body[field];
+        // Dynamic field update - filter allowed fields from req.body
+        const allowedFields = ['name', 'category', 'strength', 'form', 'manufacturer', 'description', 'sideEffects', 'contraindications', 'dosageInstructions', 'storageInstructions', 'price', 'stockQuantity', 'reorderLevel', 'isActive', 'createdBy'];
+        const data = {};
+        for (const field of allowedFields) {
+            if (req.body[field] !== undefined) {
+                data[field] = req.body[field];
+            }
+        }
+        await prisma.medicine.update({
+            where: { id: parseInt(req.params.id) },
+            data
         });
-
-        db.prepare(`
-            UPDATE Medicine SET 
-                ${updates},
-                updatedAt = CURRENT_TIMESTAMP
-            WHERE id = ?
-        `).run(...values, req.params.id);
-
         res.json({ id: req.params.id, ...req.body });
     } catch (error) {
         console.error('Error updating medicine:', error);
@@ -303,17 +249,17 @@ router.patch('/medicines/:id', async (req, res) => {
 
 router.delete('/medicines/:id', async (req, res) => {
     try {
-        db.prepare('DELETE FROM Medicine WHERE id = ?').run(req.params.id);
+        await prisma.medicine.delete({ where: { id: parseInt(req.params.id) } });
         res.json({ message: 'Medicine deleted' });
     } catch (error) {
         res.status(500).json({ message: 'Error deleting medicine' });
     }
 });
 
-// Invoices - Requires authentication
+// Invoices
 router.get('/invoices', requireAuth, async (req, res) => {
     try {
-        const invoices = db.prepare('SELECT * FROM Invoice ORDER BY createdAt DESC').all();
+        const invoices = await prisma.invoice.findMany({ orderBy: { createdAt: 'desc' } });
         res.json(invoices.map(i => ({ ...i, items: i.items ? JSON.parse(i.items) : [] })));
     } catch (error) {
         res.status(500).json({ message: 'Error fetching invoices' });
@@ -322,7 +268,7 @@ router.get('/invoices', requireAuth, async (req, res) => {
 
 router.get('/invoices/:id', requireAuth, async (req, res) => {
     try {
-        const invoice = db.prepare('SELECT * FROM Invoice WHERE id = ?').get(req.params.id);
+        const invoice = await prisma.invoice.findUnique({ where: { id: parseInt(req.params.id) } });
         if (invoice) {
             res.json({ ...invoice, items: invoice.items ? JSON.parse(invoice.items) : [] });
         } else {
@@ -333,45 +279,38 @@ router.get('/invoices/:id', requireAuth, async (req, res) => {
     }
 });
 
-// Only RECEPTIONIST or ADMIN can create invoices
 router.post('/invoices', requireAuth, requireRole(['RECEPTIONIST', 'ADMIN']), async (req, res) => {
     try {
         const { invoiceNumber, patientName, patientPhone, patientEmail, items, totalAmount, status, paymentMethod } = req.body;
-        const info = db.prepare(
-            `INSERT INTO Invoice (
-                invoiceNumber, patientName, patientPhone, patientEmail, 
-                items, totalAmount, status, paymentMethod
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-            invoiceNumber || `INV-${Date.now()}`,
-            patientName, patientPhone, patientEmail,
-            JSON.stringify(items || []),
-            totalAmount,
-            status || 'pending',
-            paymentMethod
-        );
-
-        res.status(201).json({ id: info.lastInsertRowid, ...req.body });
+        const result = await prisma.invoice.create({
+            data: {
+                invoiceNumber: invoiceNumber || `INV-${Date.now()}`,
+                patientName, patientPhone, patientEmail,
+                items: JSON.stringify(items || []),
+                totalAmount,
+                status: status || 'pending',
+                paymentMethod
+            }
+        });
+        res.status(201).json({ id: result.id, ...req.body });
     } catch (error) {
         console.error('Error creating invoice:', error);
         res.status(500).json({ message: 'Error creating invoice' });
     }
 });
 
-// Only RECEPTIONIST or ADMIN can update invoices
 router.patch('/invoices/:id', requireAuth, requireRole(['RECEPTIONIST', 'ADMIN']), async (req, res) => {
     try {
         const { status, paymentMethod, paymentDate, paymentReference, paymentNotes } = req.body;
-        db.prepare(`
-            UPDATE Invoice SET 
-                status = COALESCE(?, status), 
-                paymentMethod = COALESCE(?, paymentMethod),
-                paymentDate = COALESCE(?, paymentDate),
-                paymentReference = COALESCE(?, paymentReference),
-                paymentNotes = COALESCE(?, paymentNotes),
-                updatedAt = CURRENT_TIMESTAMP 
-            WHERE id = ?
-        `).run(status, paymentMethod, paymentDate, paymentReference, paymentNotes, req.params.id);
+        // Build data object with only defined fields
+        const data = {};
+        if (status !== undefined) data.status = status;
+        if (paymentMethod !== undefined) data.paymentMethod = paymentMethod;
+        if (paymentDate !== undefined) data.paymentDate = paymentDate;
+        if (paymentReference !== undefined) data.paymentReference = paymentReference;
+        if (paymentNotes !== undefined) data.paymentNotes = paymentNotes;
+
+        await prisma.invoice.update({ where: { id: parseInt(req.params.id) }, data });
         res.json({ id: req.params.id, ...req.body });
     } catch (error) {
         console.error('Error updating invoice:', error);
@@ -379,28 +318,26 @@ router.patch('/invoices/:id', requireAuth, requireRole(['RECEPTIONIST', 'ADMIN']
     }
 });
 
-// Payments - Requires authentication
+// Payments
 router.get('/payments', requireAuth, async (req, res) => {
     try {
-        const payments = db.prepare('SELECT * FROM Payment ORDER BY processedAt DESC').all();
+        const payments = await prisma.payment.findMany({ orderBy: { processedAt: 'desc' } });
         res.json(payments);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching payments' });
     }
 });
 
-// Only RECEPTIONIST or ADMIN can process payments
 router.post('/payments', requireAuth, requireRole(['RECEPTIONIST', 'ADMIN']), async (req, res) => {
     try {
         const { invoiceId, invoiceNumber, patientName, patientPhone, amount, method, reference, notes, processedBy } = req.body;
-        const info = db.prepare(
-            `INSERT INTO Payment (
-                invoiceId, invoiceNumber, patientName, patientPhone, 
+        const result = await prisma.payment.create({
+            data: {
+                invoiceId, invoiceNumber, patientName, patientPhone,
                 amount, method, reference, notes, processedBy
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(invoiceId, invoiceNumber, patientName, patientPhone, amount, method, reference, notes, processedBy);
-
-        res.status(201).json({ id: info.lastInsertRowid, ...req.body });
+            }
+        });
+        res.status(201).json({ id: result.id, ...req.body });
     } catch (error) {
         console.error('Error creating payment:', error);
         res.status(500).json({ message: 'Error creating payment' });

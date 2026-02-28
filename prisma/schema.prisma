@@ -3,26 +3,25 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider = "postgresql"
 }
 
 model User {
-  id             Int      @id @default(autoincrement())
-  email          String   @unique
-  password       String
-  fullName       String
-  profileImage   String?
-  emailVerified      Boolean  @default(false)
-  verificationToken  String?
+  id                  Int       @id @default(autoincrement())
+  email               String    @unique
+  password            String
+  fullName            String
+  profileImage        String?
+  tempPassword        String?
+  emailVerified       Boolean   @default(false)
+  verificationToken   String?
   verificationExpires DateTime?
-  createdAt          DateTime @default(now())
-  lastLogin          DateTime?
+  createdAt           DateTime  @default(now())
+  lastLogin           DateTime?
 
-  // Relations
-  clinics ClinicUser[]
-  invitesCreated Invite[] @relation("InviteCreator")
-  doctorProfile  DoctorProfile?
+  clinics            ClinicUser[]
+  invitesCreated     Invite[]          @relation("InviteCreator")
+  doctorProfile      DoctorProfile?
   receptionistProfile ReceptionistProfile?
 }
 
@@ -31,15 +30,15 @@ model DoctorProfile {
   userId           Int      @unique
   user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   specialization   String?
-  subspecialty     String?
+  subspecialty      String?
   licenseNumber    String?
-  prcId            String?  // PRC / Medical Registration ID
+  prcId            String?
   bio              String?
   consultationFee  Float?
   clinicHours      String?
-  digitalSignature String?  // Base64 encoded signature image for prescriptions
-  ptrTaxId         String?  // PTR / Tax ID for official receipts
-  ePrescriptionId  String?  // E-prescription ID
+  digitalSignature String?
+  ptrTaxId         String?
+  ePrescriptionId  String?
   education        String?
   experience       Int?
   createdAt        DateTime @default(now())
@@ -47,60 +46,116 @@ model DoctorProfile {
 }
 
 model ReceptionistProfile {
-  id                      Int      @id @default(autoincrement())
-  userId                  Int      @unique
-  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  dateOfBirth             String?
-  address                 String?
-  phone                   String?
-  emergencyContactName    String?
-  emergencyContactPhone   String?
-  position                String?
-  yearsOfExperience       Int?
-  skills                  String?
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
+  id                    Int      @id @default(autoincrement())
+  userId                Int      @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dateOfBirth           String?
+  address               String?
+  phone                 String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  position              String?
+  yearsOfExperience     Int?
+  skills                String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 }
 
 model Appointment {
-  id              Int      @id @default(autoincrement())
+  id              Int       @id @default(autoincrement())
   patientName     String
+  patientPhone    String?
+  patientEmail    String?
+  patientAge      String?
+  patientGender   String?
   doctorName      String
-  appointmentDate String   // YYYY-MM-DD
-  status          String   // "token_generated", "in_progress", "completed", "cancelled"
+  appointmentDate String
+  appointmentTime String?
+  appointmentType String?
+  status          String    @default("scheduled")
   tokenNumber     String?
-  createdAt       DateTime @default(now())
+  notes           String?
+  symptoms        String?
+  medicalHistory  String?
+  medications     String?
+  vitalSigns      String?   // JSON string
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
 }
 
 model Prescription {
-  id           Int      @id @default(autoincrement())
-  patientName  String
-  doctorId     Int
-  doctorName   String
-  medicines    String   // JSON string of array
-  instructions String?
-  createdAt    DateTime @default(now())
+  id               Int      @id @default(autoincrement())
+  patientName      String
+  patientAge       String?
+  patientGender    String?
+  patientPhone     String?
+  patientEmail     String?
+  prescriptionDate String?
+  diagnosis        String?
+  symptoms         String?
+  doctorId         Int?
+  doctorName       String
+  medicines        String?  // JSON string
+  instructions     String?
+  followUpDate     String?
+  status           String?
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now()) @updatedAt
 }
 
 model Medicine {
-  id          Int      @id @default(autoincrement())
-  name        String
-  type        String
-  dosage      String
-  stock       Int
-  createdAt   DateTime @default(now())
+  id                  Int      @id @default(autoincrement())
+  name                String
+  category            String?
+  strength            String?
+  form                String?
+  manufacturer        String?
+  description         String?
+  sideEffects         String?
+  contraindications   String?
+  dosageInstructions  String?
+  storageInstructions String?
+  price               Float?
+  stockQuantity       Int?
+  reorderLevel        Int?
+  isActive            Boolean  @default(true)
+  createdBy           String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @default(now()) @updatedAt
 }
 
 model Invoice {
-  id           Int      @id @default(autoincrement())
-  patientName  String
-  items        String   // JSON string
-  totalAmount  Float
-  status       String   // "pending", "paid"
-  createdAt    DateTime @default(now())
+  id               Int      @id @default(autoincrement())
+  invoiceNumber    String?
+  patientName      String
+  patientPhone     String?
+  patientEmail     String?
+  items            String?  // JSON string
+  totalAmount      Float
+  status           String   @default("pending")
+  paymentMethod    String?
+  paymentDate      String?
+  paymentReference String?
+  paymentNotes     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now()) @updatedAt
 }
 
-// Multi-Clinic RBAC Models
+model Payment {
+  id            Int      @id @default(autoincrement())
+  invoiceId     Int?
+  invoiceNumber String?
+  patientName   String?
+  patientPhone  String?
+  amount        Float?
+  method        String?
+  reference     String?
+  notes         String?
+  processedBy   String?
+  processedAt   DateTime @default(now())
+}
+
 model Clinic {
   id        Int      @id @default(autoincrement())
   name      String
@@ -109,7 +164,6 @@ model Clinic {
   email     String?
   createdAt DateTime @default(now())
 
-  // Relations
   users        ClinicUser[]
   invites      Invite[]
   patients     Patient[]
@@ -118,9 +172,8 @@ model Clinic {
 
 model Role {
   id   Int    @id @default(autoincrement())
-  name String @unique // DOCTOR, RECEPTIONIST, ADMIN
+  name String @unique
 
-  // Relations
   clinicUsers ClinicUser[]
   invites     Invite[]
 }
@@ -132,7 +185,6 @@ model ClinicUser {
   roleId    Int
   createdAt DateTime @default(now())
 
-  // Relations
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
@@ -153,7 +205,6 @@ model Invite {
   createdAt  DateTime  @default(now())
   acceptedAt DateTime?
 
-  // Relations
   clinic  Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   role    Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
   creator User   @relation("InviteCreator", fields: [createdBy], references: [id], onDelete: Cascade)
@@ -163,47 +214,41 @@ model Invite {
 }
 
 model Patient {
-  id                    Int      @id @default(autoincrement())
-  fullName              String
-  dateOfBirth           String?  // YYYY-MM-DD
-  gender                String?
-  civilStatus           String?  // Single, Married, Widowed, Separated, Divorced
-  nationalId            String?  // National ID / Passport number
-  phone                 String?
-  email                 String?
-  address               String?
-  emergencyContactName  String?
-  emergencyContactPhone String?
-  emergencyContactRelationship String? // Spouse, Parent, Sibling, etc.
+  id                           Int      @id @default(autoincrement())
+  fullName                     String
+  dateOfBirth                  String?
+  gender                       String?
+  civilStatus                  String?
+  nationalId                   String?
+  phone                        String?
+  email                        String?
+  address                      String?
+  emergencyContactName         String?
+  emergencyContactPhone        String?
+  emergencyContactRelationship String?
+  insuranceProvider            String?
+  insurancePolicyNumber        String?
+  hmoAccount                   String?
+  referredBy                   String?
+  firstVisitDate               String?
+  preferredCommunication       String?
+  bloodType                    String?
+  allergies                    String?
+  currentMedications           String?
+  medicalHistory               String?
+  surgicalHistory              String?
+  familyHistory                String?
+  smokingAlcoholUse            String?
+  height                       Float?
+  weight                       Float?
+  vaccinationStatus            String?
+  profileImage                 String?
+  attachments                  String?  // JSON
+  specialtyData                String?  // JSON
+  clinicId                     Int
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
 
-  // Administrative
-  insuranceProvider     String?
-  insurancePolicyNumber String?
-  hmoAccount            String?  // HMO / Corporate Account
-  referredBy            String?
-  firstVisitDate        String?  // YYYY-MM-DD
-  preferredCommunication String? // SMS, Email, WhatsApp
-
-  // Medical Basics
-  bloodType             String?
-  allergies             String?  // Drug/food/environmental allergies
-  currentMedications    String?
-  medicalHistory        String?  // Past medical history
-  surgicalHistory       String?
-  familyHistory         String?
-  smokingAlcoholUse     String?  // Smoking / Alcohol usage info
-  height                Float?   // in cm
-  weight                Float?   // in kg
-  vaccinationStatus     String?  // Optional global field
-
-  profileImage          String?  // Base64 encoded image or file path
-  attachments           String?  // JSON string array of file objects
-  specialtyData         String?  // JSON object of specialty-specific form data
-  clinicId              Int
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-
-  // Relations
   clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
 
   @@index([clinicId])
@@ -211,35 +256,31 @@ model Patient {
   @@index([fullName])
 }
 
-// Subscription Plans
 model Plan {
-  id            Int      @id @default(autoincrement())
-  name          String   @unique // STARTER, GROWTH, PRO
-  priceMonthly  Int      // Price in cents (e.g., 2900 = $29.00)
-  priceYearly   Int      // Price in cents (e.g., 29000 = $290.00)
-  maxDoctors    Int?     // null = unlimited
-  maxStaff      Int?     // null = unlimited
-  multiClinic   Boolean  @default(false)
-  features      String?  // JSON string of features
-  createdAt     DateTime @default(now())
+  id           Int      @id @default(autoincrement())
+  name         String   @unique
+  priceMonthly Int
+  priceYearly  Int
+  maxDoctors   Int?
+  maxStaff     Int?
+  multiClinic  Boolean  @default(false)
+  features     String?
+  createdAt    DateTime @default(now())
 
-  // Relations
   subscriptions Subscription[]
 }
 
-// Clinic Subscriptions
 model Subscription {
   id          Int       @id @default(autoincrement())
-  clinicId    Int       @unique // One subscription per clinic
+  clinicId    Int       @unique
   planId      Int
-  status      String    // trialing | active | past_due | canceled
+  status      String
   trialEndsAt DateTime?
   startsAt    DateTime  @default(now())
-  endsAt      DateTime? // null = active, set when canceled
+  endsAt      DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  // Relations
   clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
   plan   Plan   @relation(fields: [planId], references: [id])
 

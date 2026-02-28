@@ -1,35 +1,41 @@
 import express from 'express';
-import db from '../db.js';
+import prisma from '../db.js';
 import { requireAuth, requireSuperAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Get all clinics and their staff
-router.get('/clinics', requireAuth, requireSuperAdmin, (req, res) => {
+// GET /clinics - complex query with nested JSON
+router.get('/clinics', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
-        const clinics = db.prepare(`
-            SELECT c.*, 
-            (SELECT json_group_array(json_object(
-                'id', u.id, 
-                'fullName', u.fullName, 
-                'email', u.email, 
-                'role', (SELECT GROUP_CONCAT(r2.name, ', ')
-                        FROM ClinicUser cu2
-                        JOIN Role r2 ON cu2.roleId = r2.id
-                        WHERE cu2.userId = u.id AND cu2.clinicId = c.id
-                        AND r2.name NOT IN ('SUPER_ADMIN'))
-            ))
-             FROM (SELECT DISTINCT userId FROM ClinicUser WHERE clinicId = c.id) cu
-             JOIN User u ON cu.userId = u.id) as staff
-            FROM Clinic c
-        `).all();
-
-        // Parse staff JSON strings
-        const formattedClinics = clinics.map(clinic => ({
-            ...clinic,
-            staff: clinic.staff ? JSON.parse(clinic.staff) : []
-        }));
-
+        // Use Prisma includes instead of SQLite json_group_array
+        const clinics = await prisma.clinic.findMany({
+            include: {
+                users: {
+                    include: {
+                        user: { select: { id: true, fullName: true, email: true } },
+                        role: { select: { name: true } }
+                    }
+                }
+            }
+        });
+        // Format to match original response: each clinic has a `staff` array
+        const formattedClinics = clinics.map(clinic => {
+            const staffMap = {};
+            clinic.users.forEach(cu => {
+                if (cu.role.name === 'SUPER_ADMIN') return; // exclude SUPER_ADMIN
+                if (!staffMap[cu.userId]) {
+                    staffMap[cu.userId] = { id: cu.user.id, fullName: cu.user.fullName, email: cu.user.email, role: '' };
+                    staffMap[cu.userId]._roles = [];
+                }
+                staffMap[cu.userId]._roles.push(cu.role.name);
+            });
+            const staff = Object.values(staffMap).map(s => {
+                const { _roles, ...rest } = s;
+                return { ...rest, role: _roles.join(', ') };
+            });
+            const { users, ...clinicData } = clinic;
+            return { ...clinicData, staff };
+        });
         res.json(formattedClinics);
     } catch (error) {
         console.error('Error fetching clinics:', error);
@@ -37,21 +43,17 @@ router.get('/clinics', requireAuth, requireSuperAdmin, (req, res) => {
     }
 });
 
-// Update clinic
-router.patch('/clinics/:id', requireAuth, requireSuperAdmin, (req, res) => {
+// PATCH /clinics/:id
+router.patch('/clinics/:id', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { name, address, phone, email } = req.body;
-
-        db.prepare(`
-            UPDATE Clinic 
-            SET name = COALESCE(?, name),
-                address = COALESCE(?, address),
-                phone = COALESCE(?, phone),
-                email = COALESCE(?, email)
-            WHERE id = ?
-        `).run(name, address, phone, email, id);
-
+        const data = {};
+        if (name !== undefined) data.name = name;
+        if (address !== undefined) data.address = address;
+        if (phone !== undefined) data.phone = phone;
+        if (email !== undefined) data.email = email;
+        await prisma.clinic.update({ where: { id: parseInt(id) }, data });
         res.json({ message: 'Clinic updated successfully' });
     } catch (error) {
         console.error('Error updating clinic:', error);
@@ -59,16 +61,11 @@ router.patch('/clinics/:id', requireAuth, requireSuperAdmin, (req, res) => {
     }
 });
 
-// Delete clinic
-router.delete('/clinics/:id', requireAuth, requireSuperAdmin, (req, res) => {
+// DELETE /clinics/:id
+router.delete('/clinics/:id', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
         const { id } = req.params;
-
-        // Better-sqlite3 handles ON DELETE CASCADE if configured in schema, 
-        // but PRISMA-generated SQLite doesn't always have PRAGMA foreign_keys = ON;
-        // The server/db.js should handle it.
-        db.prepare('DELETE FROM Clinic WHERE id = ?').run(id);
-
+        await prisma.clinic.delete({ where: { id: parseInt(id) } });
         res.json({ message: 'Clinic removed successfully' });
     } catch (error) {
         console.error('Error deleting clinic:', error);
@@ -76,38 +73,50 @@ router.delete('/clinics/:id', requireAuth, requireSuperAdmin, (req, res) => {
     }
 });
 
-// Get all users
-router.get('/users', requireAuth, requireSuperAdmin, (req, res) => {
+// GET /users - complex query with associations
+router.get('/users', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
-        const users = db.prepare(`
-            SELECT u.id, u.email, u.fullName, u.emailVerified, u.createdAt, u.lastLogin,
-            (SELECT json_group_array(json_object(
-                'clinicId', c.id,
-                'clinicName', c.name,
-                'role', (SELECT GROUP_CONCAT(r2.name, ', ')
-                        FROM ClinicUser cu2
-                        JOIN Role r2 ON cu2.roleId = r2.id
-                        WHERE cu2.userId = u.id AND cu2.clinicId = c.id
-                        AND r2.name NOT IN ('SUPER_ADMIN')),
-                'planId', (SELECT s.planId FROM Subscription s WHERE s.clinicId = c.id),
-                'planName', (SELECT p.name FROM Subscription s 
-                             JOIN Plan p ON s.planId = p.id 
-                             WHERE s.clinicId = c.id),
-                'subscriptionStatus', (SELECT s.status FROM Subscription s WHERE s.clinicId = c.id),
-                'priceMonthly', (SELECT p.priceMonthly FROM Subscription s 
-                                 JOIN Plan p ON s.planId = p.id 
-                                 WHERE s.clinicId = c.id)
-            ))
-             FROM (SELECT DISTINCT clinicId FROM ClinicUser WHERE userId = u.id) cu
-             JOIN Clinic c ON cu.clinicId = c.id) as associations
-            FROM User u
-        `).all();
-
-        const formattedUsers = users.map(user => ({
-            ...user,
-            associations: JSON.parse(user.associations)
-        }));
-
+        // Use Prisma includes instead of nested subqueries
+        const users = await prisma.user.findMany({
+            select: {
+                id: true, email: true, fullName: true, emailVerified: true, createdAt: true, lastLogin: true,
+                clinics: {
+                    include: {
+                        clinic: {
+                            include: { subscription: { include: { plan: true } } }
+                        },
+                        role: { select: { name: true } }
+                    }
+                }
+            }
+        });
+        // Format to match original response shape
+        const formattedUsers = users.map(user => {
+            const clinicMap = {};
+            user.clinics.forEach(cu => {
+                if (cu.role.name === 'SUPER_ADMIN') return;
+                if (!clinicMap[cu.clinicId]) {
+                    const sub = cu.clinic.subscription;
+                    clinicMap[cu.clinicId] = {
+                        clinicId: cu.clinic.id,
+                        clinicName: cu.clinic.name,
+                        role: '',
+                        planId: sub?.planId || null,
+                        planName: sub?.plan?.name || null,
+                        subscriptionStatus: sub?.status || null,
+                        priceMonthly: sub?.plan?.priceMonthly || null
+                    };
+                    clinicMap[cu.clinicId]._roles = [];
+                }
+                clinicMap[cu.clinicId]._roles.push(cu.role.name);
+            });
+            const associations = Object.values(clinicMap).map(a => {
+                const { _roles, ...rest } = a;
+                return { ...rest, role: _roles.join(', ') };
+            });
+            const { clinics, ...userData } = user;
+            return { ...userData, associations };
+        });
         res.json(formattedUsers);
     } catch (error) {
         console.error('Error fetching users:', error);
@@ -115,19 +124,15 @@ router.get('/users', requireAuth, requireSuperAdmin, (req, res) => {
     }
 });
 
-// Update user
-router.patch('/users/:id', requireAuth, requireSuperAdmin, (req, res) => {
+// PATCH /users/:id
+router.patch('/users/:id', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { fullName, email } = req.body;
-
-        db.prepare(`
-            UPDATE User
-            SET fullName = COALESCE(?, fullName),
-                email = COALESCE(?, email)
-            WHERE id = ?
-        `).run(fullName, email, id);
-
+        const data = {};
+        if (fullName) data.fullName = fullName;
+        if (email) data.email = email;
+        await prisma.user.update({ where: { id: parseInt(id) }, data });
         res.json({ message: 'User updated successfully' });
     } catch (error) {
         console.error('Error updating user:', error);
@@ -135,17 +140,10 @@ router.patch('/users/:id', requireAuth, requireSuperAdmin, (req, res) => {
     }
 });
 
-// Manually verify user's email
-router.post('/users/:id/verify-email', requireAuth, requireSuperAdmin, (req, res) => {
+// POST /users/:id/verify-email
+router.post('/users/:id/verify-email', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
-        const { id } = req.params;
-
-        db.prepare(`
-            UPDATE User
-            SET emailVerified = 1
-            WHERE id = ?
-        `).run(id);
-
+        await prisma.user.update({ where: { id: parseInt(req.params.id) }, data: { emailVerified: true } });
         res.json({ message: 'User email verified successfully' });
     } catch (error) {
         console.error('Error verifying user email:', error);
@@ -153,11 +151,10 @@ router.post('/users/:id/verify-email', requireAuth, requireSuperAdmin, (req, res
     }
 });
 
-// Delete user
-router.delete('/users/:id', requireAuth, requireSuperAdmin, (req, res) => {
+// DELETE /users/:id
+router.delete('/users/:id', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
-        const { id } = req.params;
-        db.prepare('DELETE FROM User WHERE id = ?').run(id);
+        await prisma.user.delete({ where: { id: parseInt(req.params.id) } });
         res.json({ message: 'User removed successfully' });
     } catch (error) {
         console.error('Error deleting user:', error);
@@ -165,32 +162,24 @@ router.delete('/users/:id', requireAuth, requireSuperAdmin, (req, res) => {
     }
 });
 
-// Assign Super Admin role to a user (only Super Admin can do this)
-router.post('/make-superadmin', requireAuth, requireSuperAdmin, (req, res) => {
+// POST /make-superadmin
+router.post('/make-superadmin', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
         const { userId } = req.body;
-        const superAdminRole = db.prepare('SELECT id FROM Role WHERE name = ?').get('SUPER_ADMIN');
-
-        if (!superAdminRole) {
-            return res.status(500).json({ message: 'SUPER_ADMIN role not found' });
-        }
-
-        // Technically SUPER_ADMIN doesn't need to be tied to a clinic for system-wide access,
-        // but the current schema uses ClinicUser. We'll use a virtual/system clinic id 0 or similar if needed,
-        // or just check for existence in ANY clinic with SUPER_ADMIN role.
-        // For simplicity, let's just use a dedicated table or a field in User if we want it system-wide.
-        // Given the current schema, we'll use clinicId: 0 or a special System clinic.
-
-        let systemClinic = db.prepare('SELECT id FROM Clinic WHERE id = 0').get();
+        const superAdminRole = await prisma.role.findUnique({ where: { name: 'SUPER_ADMIN' } });
+        if (!superAdminRole) return res.status(500).json({ message: 'SUPER_ADMIN role not found' });
+        
+        // Ensure System clinic exists (id: 0 is tricky for autoincrement, use upsert or findFirst)
+        let systemClinic = await prisma.clinic.findFirst({ where: { name: 'System' } });
         if (!systemClinic) {
-            db.prepare("INSERT INTO Clinic (id, name) VALUES (0, 'System')").run();
+            systemClinic = await prisma.clinic.create({ data: { name: 'System' } });
         }
-
-        db.prepare(`
-            INSERT OR IGNORE INTO ClinicUser (userId, clinicId, roleId)
-            VALUES (?, 0, ?)
-        `).run(userId, superAdminRole.id);
-
+        
+        try {
+            await prisma.clinicUser.create({ data: { userId: parseInt(userId), clinicId: systemClinic.id, roleId: superAdminRole.id } });
+        } catch (e) {
+            if (e.code !== 'P2002') throw e; // ignore if already exists
+        }
         res.json({ message: 'User is now a Super Admin' });
     } catch (error) {
         console.error('Error making superadmin:', error);
@@ -198,26 +187,20 @@ router.post('/make-superadmin', requireAuth, requireSuperAdmin, (req, res) => {
     }
 });
 
-// Associate user with a clinic
-router.post('/users/:userId/clinics', requireAuth, requireSuperAdmin, (req, res) => {
+// POST /users/:userId/clinics
+router.post('/users/:userId/clinics', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
         const { clinicId, role } = req.body;
-
-        if (!clinicId || !role) {
-            return res.status(400).json({ message: 'Clinic ID and role are required' });
-        }
-
-        const roleData = db.prepare('SELECT id FROM Role WHERE name = ?').get(role);
-        if (!roleData) {
-            return res.status(400).json({ message: 'Invalid role' });
-        }
-
-        db.prepare(`
-            INSERT OR REPLACE INTO ClinicUser (userId, clinicId, roleId)
-            VALUES (?, ?, ?)
-        `).run(userId, clinicId, roleData.id);
-
+        if (!clinicId || !role) return res.status(400).json({ message: 'Clinic ID and role are required' });
+        const roleData = await prisma.role.findUnique({ where: { name: role } });
+        if (!roleData) return res.status(400).json({ message: 'Invalid role' });
+        // Upsert to handle INSERT OR REPLACE
+        await prisma.clinicUser.upsert({
+            where: { userId_clinicId_roleId: { userId: parseInt(userId), clinicId: parseInt(clinicId), roleId: roleData.id } },
+            create: { userId: parseInt(userId), clinicId: parseInt(clinicId), roleId: roleData.id },
+            update: {} // no-op
+        });
         res.json({ message: 'User associated with clinic successfully' });
     } catch (error) {
         console.error('Error associating user with clinic:', error);
@@ -225,16 +208,11 @@ router.post('/users/:userId/clinics', requireAuth, requireSuperAdmin, (req, res)
     }
 });
 
-// Remove user association with a clinic
-router.delete('/users/:userId/clinics/:clinicId', requireAuth, requireSuperAdmin, (req, res) => {
+// DELETE /users/:userId/clinics/:clinicId
+router.delete('/users/:userId/clinics/:clinicId', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
         const { userId, clinicId } = req.params;
-
-        db.prepare(`
-            DELETE FROM ClinicUser 
-            WHERE userId = ? AND clinicId = ?
-        `).run(userId, clinicId);
-
+        await prisma.clinicUser.deleteMany({ where: { userId: parseInt(userId), clinicId: parseInt(clinicId) } });
         res.json({ message: 'User association removed successfully' });
     } catch (error) {
         console.error('Error removing user association:', error);
@@ -242,21 +220,14 @@ router.delete('/users/:userId/clinics/:clinicId', requireAuth, requireSuperAdmin
     }
 });
 
-// Get all available plans
-router.get('/plans', requireAuth, requireSuperAdmin, (req, res) => {
+// GET /plans
+router.get('/plans', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
-        const plans = db.prepare(`
-            SELECT id, name, priceMonthly, priceYearly, maxDoctors, maxStaff, multiClinic, features
-            FROM Plan
-            ORDER BY priceMonthly ASC
-        `).all();
-
+        const plans = await prisma.plan.findMany({ orderBy: { priceMonthly: 'asc' } });
         const formattedPlans = plans.map(plan => ({
             ...plan,
-            multiClinic: plan.multiClinic === 1,
             features: plan.features ? JSON.parse(plan.features) : []
         }));
-
         res.json(formattedPlans);
     } catch (error) {
         console.error('Error fetching plans:', error);
@@ -264,40 +235,20 @@ router.get('/plans', requireAuth, requireSuperAdmin, (req, res) => {
     }
 });
 
-// Update clinic subscription plan
-router.patch('/clinics/:clinicId/subscription', requireAuth, requireSuperAdmin, (req, res) => {
+// PATCH /clinics/:clinicId/subscription
+router.patch('/clinics/:clinicId/subscription', requireAuth, requireSuperAdmin, async (req, res) => {
     try {
         const { clinicId } = req.params;
         const { planId } = req.body;
-
-        if (!planId) {
-            return res.status(400).json({ message: 'Plan ID is required' });
-        }
-
-        // Check if plan exists
-        const plan = db.prepare('SELECT id FROM Plan WHERE id = ?').get(planId);
-        if (!plan) {
-            return res.status(404).json({ message: 'Plan not found' });
-        }
-
-        // Check if subscription exists
-        const subscription = db.prepare('SELECT id FROM Subscription WHERE clinicId = ?').get(clinicId);
-
-        if (subscription) {
-            // Update existing subscription
-            db.prepare(`
-                UPDATE Subscription
-                SET planId = ?, status = 'active', updatedAt = CURRENT_TIMESTAMP
-                WHERE clinicId = ?
-            `).run(planId, clinicId);
-        } else {
-            // Create new subscription
-            db.prepare(`
-                INSERT INTO Subscription (clinicId, planId, status)
-                VALUES (?, ?, 'active')
-            `).run(clinicId, planId);
-        }
-
+        if (!planId) return res.status(400).json({ message: 'Plan ID is required' });
+        const plan = await prisma.plan.findUnique({ where: { id: parseInt(planId) } });
+        if (!plan) return res.status(404).json({ message: 'Plan not found' });
+        // Upsert subscription (clinicId is unique)
+        await prisma.subscription.upsert({
+            where: { clinicId: parseInt(clinicId) },
+            create: { clinicId: parseInt(clinicId), planId: parseInt(planId), status: 'active' },
+            update: { planId: parseInt(planId), status: 'active' }
+        });
         res.json({ message: 'Subscription plan updated successfully' });
     } catch (error) {
         console.error('Error updating subscription plan:', error);

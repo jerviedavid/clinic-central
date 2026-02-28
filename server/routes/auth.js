@@ -2,7 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import db from '../db.js';
+import prisma from '../db.js';
 import { sendVerificationEmail, sendWelcomeEmail } from '../utils/email.js';
 
 const router = express.Router();
@@ -12,166 +12,79 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 router.post('/signup', async (req, res) => {
     try {
         const { email, password, fullName } = req.body;
-
-        // Basic validation - role is no longer required
         if (!email || !password || !fullName) {
             return res.status(400).json({
                 message: 'Email, password, and full name are required',
-                missingFields: {
-                    email: !email,
-                    password: !password,
-                    fullName: !fullName
-                }
+                missingFields: { email: !email, password: !password, fullName: !fullName }
             });
         }
-
-        const existingUser = db.prepare('SELECT * FROM User WHERE email = ?').get(email);
+        const existingUser = await prisma.user.findUnique({ where: { email } });
         if (existingUser) {
             return res.status(400).json({ message: 'User already exists' });
         }
-
         const hashedPassword = await bcrypt.hash(password, 10);
-
-        // Generate verification token
         const verificationToken = crypto.randomBytes(32).toString('hex');
         const verificationExpires = new Date();
-        verificationExpires.setHours(verificationExpires.getHours() + 24); // 24 hours
+        verificationExpires.setHours(verificationExpires.getHours() + 24);
 
-        // Create user
-        const userInfo = db.prepare(
-            'INSERT INTO User (email, password, fullName, verificationToken, verificationExpires) VALUES (?, ?, ?, ?, ?)'
-        ).run(email, hashedPassword, fullName, verificationToken, verificationExpires.toISOString());
+        const user = await prisma.user.create({
+            data: {
+                email,
+                password: hashedPassword,
+                fullName,
+                verificationToken,
+                verificationExpires
+            }
+        });
+        const userId = user.id;
 
-        const userId = userInfo.lastInsertRowid;
+        const clinic = await prisma.clinic.create({
+            data: { name: `${fullName}'s Clinic` }
+        });
+        const clinicId = clinic.id;
 
-        // Create clinic for the user
-        const clinicInfo = db.prepare(
-            'INSERT INTO Clinic (name) VALUES (?)'
-        ).run(`${fullName}'s Clinic`);
+        const doctorRole = await prisma.role.findFirst({ where: { name: 'DOCTOR' } });
+        const adminRole = await prisma.role.findFirst({ where: { name: 'ADMIN' } });
 
-        const clinicId = clinicInfo.lastInsertRowid;
+        await prisma.clinicUser.create({ data: { userId, clinicId, roleId: doctorRole.id } });
+        await prisma.clinicUser.create({ data: { userId, clinicId, roleId: adminRole.id } });
 
-        // Get role IDs
-        const doctorRole = db.prepare('SELECT id FROM Role WHERE name = ?').get('DOCTOR');
-        const adminRole = db.prepare('SELECT id FROM Role WHERE name = ?').get('ADMIN');
-
-        // Assign both DOCTOR and ADMIN roles to the user
-        db.prepare(
-            'INSERT INTO ClinicUser (userId, clinicId, roleId) VALUES (?, ?, ?)'
-        ).run(userId, clinicId, doctorRole.id);
-
-        db.prepare(
-            'INSERT INTO ClinicUser (userId, clinicId, roleId) VALUES (?, ?, ?)'
-        ).run(userId, clinicId, adminRole.id);
-
-        // Create trial subscription for the new clinic
-        const starterPlan = db.prepare('SELECT id FROM Plan WHERE name = ?').get('STARTER');
-
+        const starterPlan = await prisma.plan.findFirst({ where: { name: 'STARTER' } });
         if (starterPlan) {
             const trialEndsAt = new Date();
-            trialEndsAt.setDate(trialEndsAt.getDate() + 14); // 14 days from now
-
-            db.prepare(`
-                INSERT INTO Subscription (clinicId, planId, status, trialEndsAt)
-                VALUES (?, ?, 'trialing', ?)
-            `).run(clinicId, starterPlan.id, trialEndsAt.toISOString());
-
+            trialEndsAt.setDate(trialEndsAt.getDate() + 14);
+            await prisma.subscription.create({
+                data: { clinicId, planId: starterPlan.id, status: 'trialing', trialEndsAt }
+            });
             console.log(`✅ Created 14-day trial subscription for clinic ${clinicId}`);
         }
 
-        // Send verification email
-        try {
-            await sendVerificationEmail(email, fullName, verificationToken);
-        } catch (emailError) {
-            console.error('Failed to send verification email during signup:', emailError);
-            // We continue anyway, they can resend it later
-        }
+        try { await sendVerificationEmail(email, fullName, verificationToken); } catch (emailError) { console.error('Failed to send verification email during signup:', emailError); }
+        try { await sendWelcomeEmail(email, fullName, `${fullName}'s Clinic`); } catch (emailError) { console.error('Failed to send welcome email during signup:', emailError); }
 
-        // Send welcome email
-        try {
-            await sendWelcomeEmail(email, fullName, `${fullName}'s Clinic`);
-        } catch (emailError) {
-            console.error('Failed to send welcome email during signup:', emailError);
-            // Continue anyway, email failure shouldn't block signup
-        }
-
-        const user = {
-            id: userId,
-            email,
-            fullName
-        };
-
-        // Generate JWT with clinic context and roles
-        const token = jwt.sign(
-            {
-                userId: user.id,
-                clinicId: clinicId,
-                roles: ['DOCTOR', 'ADMIN']
-            },
-            JWT_SECRET,
-            { expiresIn: '7d' }
-        );
-
-        // Set cookie for web
-        res.cookie('token', token, {
-            httpOnly: true,
-            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-        });
-
-        // Return user with clinic info
-        res.status(201).json({
-            user,
-            clinic: {
-                id: clinicId,
-                name: `${fullName}'s Clinic`
-            },
-            roles: ['DOCTOR', 'ADMIN'],
-            token // Also return token for mobile clients
-        });
+        const token = jwt.sign({ userId, clinicId, roles: ['DOCTOR', 'ADMIN'] }, JWT_SECRET, { expiresIn: '7d' });
+        res.cookie('token', token, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
+        res.status(201).json({ user: { id: userId, email, fullName }, clinic: { id: clinicId, name: `${fullName}'s Clinic` }, roles: ['DOCTOR', 'ADMIN'], token });
     } catch (error) {
-        console.error('Signup error details:', {
-            message: error.message,
-            stack: error.stack,
-            code: error.code
-        });
-        res.status(500).json({
-            message: 'Internal server error',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
+        console.error('Signup error details:', { message: error.message, stack: error.stack, code: error.code });
+        res.status(500).json({ message: 'Internal server error', error: process.env.NODE_ENV === 'development' ? error.message : undefined });
     }
 });
 
-/**
- * GET /api/auth/verify-email
- * Verifies a user's email using a token
- */
-router.get('/verify-email', (req, res) => {
+// Verify email
+router.get('/verify-email', async (req, res) => {
     try {
         const { token } = req.query;
-
-        if (!token) {
-            return res.status(400).json({ message: 'Token is required' });
-        }
-
-        const user = db.prepare('SELECT * FROM User WHERE verificationToken = ?').get(token);
-
-        if (!user) {
-            return res.status(400).json({ message: 'Invalid or expired verification token' });
-        }
-
+        if (!token) return res.status(400).json({ message: 'Token is required' });
+        const user = await prisma.user.findFirst({ where: { verificationToken: token } });
+        if (!user) return res.status(400).json({ message: 'Invalid or expired verification token' });
         const now = new Date();
         const expires = new Date(user.verificationExpires);
-
-        if (now > expires) {
-            return res.status(400).json({ message: 'Verification token has expired' });
-        }
-
-        // Update user
-        db.prepare('UPDATE User SET emailVerified = 1, verificationToken = NULL, verificationExpires = NULL WHERE id = ?')
-            .run(user.id);
-
-        // Redirect to a success page or return JSON
-        // For development, redirect to frontend login with a success param
+        if (now > expires) return res.status(400).json({ message: 'Verification token has expired' });
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { emailVerified: true, verificationToken: null, verificationExpires: null }
+        });
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
         res.redirect(`${frontendUrl}/login?verified=true`);
     } catch (error) {
@@ -180,40 +93,22 @@ router.get('/verify-email', (req, res) => {
     }
 });
 
-/**
- * POST /api/auth/resend-verification
- * Resends the verification email
- */
+// Resend verification
 router.post('/resend-verification', async (req, res) => {
     try {
         const { email } = req.body;
-
-        if (!email) {
-            return res.status(400).json({ message: 'Email is required' });
-        }
-
-        const user = db.prepare('SELECT * FROM User WHERE email = ?').get(email);
-
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        if (user.emailVerified) {
-            return res.status(400).json({ message: 'Email is already verified' });
-        }
-
-        // Generate new token
+        if (!email) return res.status(400).json({ message: 'Email is required' });
+        const user = await prisma.user.findUnique({ where: { email } });
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        if (user.emailVerified) return res.status(400).json({ message: 'Email is already verified' });
         const verificationToken = crypto.randomBytes(32).toString('hex');
         const verificationExpires = new Date();
         verificationExpires.setHours(verificationExpires.getHours() + 24);
-
-        // Update user
-        db.prepare('UPDATE User SET verificationToken = ?, verificationExpires = ? WHERE id = ?')
-            .run(verificationToken, verificationExpires.toISOString(), user.id);
-
-        // Send email
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { verificationToken, verificationExpires }
+        });
         await sendVerificationEmail(user.email, user.fullName, verificationToken);
-
         res.json({ message: 'Verification email resent successfully' });
     } catch (error) {
         console.error('Resend verification error:', error);
@@ -221,392 +116,158 @@ router.post('/resend-verification', async (req, res) => {
     }
 });
 
-// Google OAuth Signup - Creates account from Google credential
+// Google OAuth Signup
 router.post('/google-signup', async (req, res) => {
     try {
         const { credential } = req.body;
-
-        if (!credential) {
-            return res.status(400).json({ message: 'Google credential is required' });
-        }
-
-        // Verify Google token and extract user info
-        // In production, you should verify the token with Google's API
-        // For now, we'll decode the JWT (it's base64 encoded)
+        if (!credential) return res.status(400).json({ message: 'Google credential is required' });
         const payload = JSON.parse(Buffer.from(credential.split('.')[1], 'base64').toString());
-
         const email = payload.email;
         const fullName = payload.name;
-        const googleId = payload.sub;
         const emailVerified = payload.email_verified;
+        if (!email || !fullName) return res.status(400).json({ message: 'Invalid Google credential' });
 
-        if (!email || !fullName) {
-            return res.status(400).json({ message: 'Invalid Google credential' });
-        }
-
-        // Check if user already exists
-        let existingUser = db.prepare('SELECT * FROM User WHERE email = ?').get(email);
-
+        let existingUser = await prisma.user.findUnique({ where: { email } });
         if (existingUser) {
-            // User exists, just log them in
-            // Get all clinics and roles for this user
-            const clinicRoles = db.prepare(`
-                SELECT 
-                    c.id as clinicId,
-                    c.name as clinicName,
-                    r.name as roleName
-                FROM ClinicUser cu
-                JOIN Clinic c ON cu.clinicId = c.id
-                JOIN Role r ON cu.roleId = r.id
-                WHERE cu.userId = ?
-            `).all(existingUser.id);
-
-            if (clinicRoles.length === 0) {
-                return res.status(403).json({
-                    message: 'Your account is not associated with any clinic. Please contact your system administrator.'
-                });
-            }
-
-            // Group roles by clinic
+            // User exists, log them in
+            const clinicUserData = await prisma.clinicUser.findMany({
+                where: { userId: existingUser.id },
+                include: { clinic: true, role: true }
+            });
+            const clinicRoles = clinicUserData.map(cu => ({
+                clinicId: cu.clinic.id,
+                clinicName: cu.clinic.name,
+                roleName: cu.role.name
+            }));
+            if (clinicRoles.length === 0) return res.status(403).json({ message: 'Your account is not associated with any clinic. Please contact your system administrator.' });
             const clinicsMap = {};
             clinicRoles.forEach(cr => {
-                if (!clinicsMap[cr.clinicId]) {
-                    clinicsMap[cr.clinicId] = {
-                        clinicId: cr.clinicId,
-                        clinicName: cr.clinicName,
-                        roles: []
-                    };
-                }
+                if (!clinicsMap[cr.clinicId]) clinicsMap[cr.clinicId] = { clinicId: cr.clinicId, clinicName: cr.clinicName, roles: [] };
                 clinicsMap[cr.clinicId].roles.push(cr.roleName);
             });
-
             const clinics = Object.values(clinicsMap);
             const defaultClinic = clinics.find(c => c.clinicId !== 0) || clinics[0];
             const isSuperAdmin = clinicRoles.some(cr => cr.roleName === 'SUPER_ADMIN');
             const tokenRoles = [...defaultClinic.roles];
-            if (isSuperAdmin && !tokenRoles.includes('SUPER_ADMIN')) {
-                tokenRoles.push('SUPER_ADMIN');
-            }
-
-            const token = jwt.sign(
-                {
-                    userId: existingUser.id,
-                    clinicId: defaultClinic.clinicId,
-                    roles: tokenRoles
-                },
-                JWT_SECRET,
-                { expiresIn: '7d' }
-            );
-
-            res.cookie('token', token, {
-                httpOnly: true,
-                maxAge: 7 * 24 * 60 * 60 * 1000
-            });
-
-            return res.json({
-                user: {
-                    id: existingUser.id,
-                    email: existingUser.email,
-                    fullName: existingUser.fullName
-                },
-                clinic: {
-                    id: defaultClinic.clinicId,
-                    name: defaultClinic.clinicName
-                },
-                roles: tokenRoles,
-                token
-            });
+            if (isSuperAdmin && !tokenRoles.includes('SUPER_ADMIN')) tokenRoles.push('SUPER_ADMIN');
+            const token = jwt.sign({ userId: existingUser.id, clinicId: defaultClinic.clinicId, roles: tokenRoles }, JWT_SECRET, { expiresIn: '7d' });
+            res.cookie('token', token, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
+            return res.json({ user: { id: existingUser.id, email: existingUser.email, fullName: existingUser.fullName }, clinic: { id: defaultClinic.clinicId, name: defaultClinic.clinicName }, roles: tokenRoles, token });
         }
 
-        // Create new user with Google OAuth (no password needed)
-        const userInfo = db.prepare(
-            'INSERT INTO User (email, password, fullName, emailVerified) VALUES (?, ?, ?, ?)'
-        ).run(email, '', fullName, emailVerified ? 1 : 0);
-
-        const userId = userInfo.lastInsertRowid;
-
-        // Create clinic for the user
-        const clinicInfo = db.prepare(
-            'INSERT INTO Clinic (name) VALUES (?)'
-        ).run(`${fullName}'s Clinic`);
-
-        const clinicId = clinicInfo.lastInsertRowid;
-
-        // Get role IDs
-        const doctorRole = db.prepare('SELECT id FROM Role WHERE name = ?').get('DOCTOR');
-        const adminRole = db.prepare('SELECT id FROM Role WHERE name = ?').get('ADMIN');
-
-        // Assign both DOCTOR and ADMIN roles to the user
-        db.prepare(
-            'INSERT INTO ClinicUser (userId, clinicId, roleId) VALUES (?, ?, ?)'
-        ).run(userId, clinicId, doctorRole.id);
-
-        db.prepare(
-            'INSERT INTO ClinicUser (userId, clinicId, roleId) VALUES (?, ?, ?)'
-        ).run(userId, clinicId, adminRole.id);
-
-        // Create trial subscription for the new clinic
-        const starterPlan = db.prepare('SELECT id FROM Plan WHERE name = ?').get('STARTER');
-
+        // Create new user
+        const newUser = await prisma.user.create({
+            data: { email, password: '', fullName, emailVerified: emailVerified ? true : false }
+        });
+        const userId = newUser.id;
+        const clinic = await prisma.clinic.create({ data: { name: `${fullName}'s Clinic` } });
+        const clinicId = clinic.id;
+        const doctorRole = await prisma.role.findFirst({ where: { name: 'DOCTOR' } });
+        const adminRole = await prisma.role.findFirst({ where: { name: 'ADMIN' } });
+        await prisma.clinicUser.create({ data: { userId, clinicId, roleId: doctorRole.id } });
+        await prisma.clinicUser.create({ data: { userId, clinicId, roleId: adminRole.id } });
+        const starterPlan = await prisma.plan.findFirst({ where: { name: 'STARTER' } });
         if (starterPlan) {
             const trialEndsAt = new Date();
             trialEndsAt.setDate(trialEndsAt.getDate() + 14);
-
-            db.prepare(`
-                INSERT INTO Subscription (clinicId, planId, status, trialEndsAt)
-                VALUES (?, ?, 'trialing', ?)
-            `).run(clinicId, starterPlan.id, trialEndsAt.toISOString());
-
-            console.log(`✅ Created 14-day trial subscription for clinic ${clinicId} (Google OAuth)`);
+            await prisma.subscription.create({
+                data: { clinicId, planId: starterPlan.id, status: 'trialing', trialEndsAt }
+            });
         }
-
-        const user = {
-            id: userId,
-            email,
-            fullName
-        };
-
-        // Generate JWT with clinic context and roles
-        const token = jwt.sign(
-            {
-                userId: user.id,
-                clinicId: clinicId,
-                roles: ['DOCTOR', 'ADMIN']
-            },
-            JWT_SECRET,
-            { expiresIn: '7d' }
-        );
-
-        // Set cookie for web
-        res.cookie('token', token, {
-            httpOnly: true,
-            maxAge: 7 * 24 * 60 * 60 * 1000
-        });
-
-        // Return user with clinic info
-        res.status(201).json({
-            user,
-            clinic: {
-                id: clinicId,
-                name: `${fullName}'s Clinic`
-            },
-            roles: ['DOCTOR', 'ADMIN'],
-            token
-        });
+        const user = { id: userId, email, fullName };
+        const token = jwt.sign({ userId: user.id, clinicId, roles: ['DOCTOR', 'ADMIN'] }, JWT_SECRET, { expiresIn: '7d' });
+        res.cookie('token', token, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
+        res.status(201).json({ user, clinic: { id: clinicId, name: `${fullName}'s Clinic` }, roles: ['DOCTOR', 'ADMIN'], token });
     } catch (error) {
-        console.error('Google signup error details:', {
-            message: error.message,
-            stack: error.stack,
-            code: error.code
-        });
-        res.status(500).json({
-            message: 'Internal server error',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
+        console.error('Google signup error details:', { message: error.message, stack: error.stack, code: error.code });
+        res.status(500).json({ message: 'Internal server error', error: process.env.NODE_ENV === 'development' ? error.message : undefined });
     }
 });
 
-// Login - Returns all clinics and roles for the user
+// Login
 router.post('/login', async (req, res) => {
     try {
         const { email, password } = req.body;
-
-        const user = db.prepare('SELECT * FROM User WHERE email = ?').get(email);
-        if (!user) {
-            return res.status(400).json({ message: 'Invalid credentials' });
-        }
-
+        const user = await prisma.user.findUnique({ where: { email } });
+        if (!user) return res.status(400).json({ message: 'Invalid credentials' });
         const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            return res.status(400).json({ message: 'Invalid credentials' });
-        }
-
-        // Update last login
-        db.prepare('UPDATE User SET lastLogin = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
-
-        // Get all clinics and roles for this user
-        const clinicRoles = db.prepare(`
-            SELECT 
-                c.id as clinicId,
-                c.name as clinicName,
-                r.name as roleName
-            FROM ClinicUser cu
-            JOIN Clinic c ON cu.clinicId = c.id
-            JOIN Role r ON cu.roleId = r.id
-            WHERE cu.userId = ?
-        `).all(user.id);
-
+        if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
+        await prisma.user.update({ where: { id: user.id }, data: { lastLogin: new Date() } });
+        const clinicUserData = await prisma.clinicUser.findMany({
+            where: { userId: user.id },
+            include: { clinic: true, role: true }
+        });
+        const clinicRoles = clinicUserData.map(cu => ({
+            clinicId: cu.clinic.id,
+            clinicName: cu.clinic.name,
+            roleName: cu.role.name
+        }));
         if (clinicRoles.length === 0) {
-            // Fallback for edge cases: check if we should auto-create a clinic or return specific error
-            // For now, return a clearer error message
             console.error(`Login failed: User ${user.id} (${user.email}) has no clinic assignments.`);
-            return res.status(403).json({
-                message: 'Your account is not associated with any clinic. Please contact your system administrator or sign up again.'
-            });
+            return res.status(403).json({ message: 'Your account is not associated with any clinic. Please contact your system administrator or sign up again.' });
         }
-
-        // Group roles by clinic
         const clinicsMap = {};
         clinicRoles.forEach(cr => {
-            if (!clinicsMap[cr.clinicId]) {
-                clinicsMap[cr.clinicId] = {
-                    clinicId: cr.clinicId,
-                    clinicName: cr.clinicName,
-                    roles: []
-                };
-            }
+            if (!clinicsMap[cr.clinicId]) clinicsMap[cr.clinicId] = { clinicId: cr.clinicId, clinicName: cr.clinicName, roles: [] };
             clinicsMap[cr.clinicId].roles.push(cr.roleName);
         });
-
         const clinics = Object.values(clinicsMap);
-
-        // Check if user is a Super Admin (has SUPER_ADMIN role in ANY clinic)
         const isSuperAdmin = clinicRoles.some(cr => cr.roleName === 'SUPER_ADMIN');
-
-        // Use first clinic as default (prefer one that isn't the System clinic if possible)
         const defaultClinic = clinics.find(c => c.clinicId !== 0) || clinics[0];
-
-        // Prepare roles for the token
         const tokenRoles = [...defaultClinic.roles];
-        if (isSuperAdmin && !tokenRoles.includes('SUPER_ADMIN')) {
-            tokenRoles.push('SUPER_ADMIN');
-        }
-
-        // Generate JWT with selected clinic context
-        const token = jwt.sign(
-            {
-                userId: user.id,
-                clinicId: defaultClinic.clinicId,
-                roles: tokenRoles
-            },
-            JWT_SECRET,
-            { expiresIn: '7d' }
-        );
-
-        // Set cookie for web
-        res.cookie('token', token, {
-            httpOnly: true,
-            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-        });
-
-        res.json({
-            user: {
-                id: user.id,
-                email: user.email,
-                fullName: user.fullName
-            },
-            clinics, // All clinics and roles
-            selectedClinic: defaultClinic, // Currently selected clinic
-            token // Also return token for mobile clients
-        });
+        if (isSuperAdmin && !tokenRoles.includes('SUPER_ADMIN')) tokenRoles.push('SUPER_ADMIN');
+        const token = jwt.sign({ userId: user.id, clinicId: defaultClinic.clinicId, roles: tokenRoles }, JWT_SECRET, { expiresIn: '7d' });
+        res.cookie('token', token, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
+        res.json({ user: { id: user.id, email: user.email, fullName: user.fullName }, clinics, selectedClinic: defaultClinic, token });
     } catch (error) {
         console.error('Login error:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 });
 
-// Get current user with all clinics and roles
+// Get current user - /me
 router.get('/me', async (req, res) => {
     try {
-        // Try to get token from cookie first (web)
         let token = req.cookies.token;
-
-        // If not in cookie, try Authorization header (mobile)
         if (!token && req.headers.authorization) {
             const authHeader = req.headers.authorization;
-            if (authHeader.startsWith('Bearer ')) {
-                token = authHeader.substring(7);
-            }
+            if (authHeader.startsWith('Bearer ')) token = authHeader.substring(7);
         }
-
-        if (!token) {
-            return res.status(401).json({ message: 'Unauthorized' });
-        }
-
+        if (!token) return res.status(401).json({ message: 'Unauthorized' });
         const decoded = jwt.verify(token, JWT_SECRET);
-        const user = db.prepare('SELECT id, email, fullName, emailVerified FROM User WHERE id = ?').get(decoded.userId);
-
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        // Get all clinics and roles for this user
-        const clinicRoles = db.prepare(`
-            SELECT 
-                c.id as clinicId,
-                c.name as clinicName,
-                r.name as roleName
-            FROM ClinicUser cu
-            JOIN Clinic c ON cu.clinicId = c.id
-            JOIN Role r ON cu.roleId = r.id
-            WHERE cu.userId = ?
-        `).all(user.id);
-
-        // Group roles by clinic
+        const user = await prisma.user.findUnique({
+            where: { id: decoded.userId },
+            select: { id: true, email: true, fullName: true, emailVerified: true }
+        });
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        const clinicUserData = await prisma.clinicUser.findMany({
+            where: { userId: user.id },
+            include: { clinic: true, role: true }
+        });
+        const clinicRoles = clinicUserData.map(cu => ({
+            clinicId: cu.clinic.id,
+            clinicName: cu.clinic.name,
+            roleName: cu.role.name
+        }));
         const clinicsMap = {};
         clinicRoles.forEach(cr => {
-            if (!clinicsMap[cr.clinicId]) {
-                clinicsMap[cr.clinicId] = {
-                    clinicId: cr.clinicId,
-                    clinicName: cr.clinicName,
-                    roles: []
-                };
-            }
+            if (!clinicsMap[cr.clinicId]) clinicsMap[cr.clinicId] = { clinicId: cr.clinicId, clinicName: cr.clinicName, roles: [] };
             clinicsMap[cr.clinicId].roles.push(cr.roleName);
         });
-
         const clinics = Object.values(clinicsMap);
-
-        // Check if user is a Super Admin
         const isSuperAdmin = clinicRoles.some(cr => cr.roleName === 'SUPER_ADMIN');
-
-        // Get roles for current clinic from the fresh DB data
         const currentClinicData = clinics.find(c => c.clinicId === decoded.clinicId);
         let currentClinicRoles = currentClinicData ? [...currentClinicData.roles] : [];
-
-        // Ensure SUPER_ADMIN role is preserved if user has it anywhere
-        if (isSuperAdmin && !currentClinicRoles.includes('SUPER_ADMIN')) {
-            currentClinicRoles.push('SUPER_ADMIN');
-        }
-
+        if (isSuperAdmin && !currentClinicRoles.includes('SUPER_ADMIN')) currentClinicRoles.push('SUPER_ADMIN');
         console.log(`[/auth/me] User: ${user.id}, Clinic: ${decoded.clinicId} (${typeof decoded.clinicId}), Roles:`, currentClinicRoles);
-
-        // Generate new JWT with fresh roles to keep backend token in sync with DB
-        const refreshedToken = jwt.sign(
-            {
-                userId: user.id,
-                clinicId: decoded.clinicId,
-                roles: currentClinicRoles
-            },
-            JWT_SECRET,
-            { expiresIn: '7d' }
-        );
-
-        // Update cookie with the refreshed token
-        res.cookie('token', refreshedToken, {
-            httpOnly: true,
-            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-        });
-
+        const refreshedToken = jwt.sign({ userId: user.id, clinicId: decoded.clinicId, roles: currentClinicRoles }, JWT_SECRET, { expiresIn: '7d' });
+        res.cookie('token', refreshedToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
         try {
             const fs = await import('fs');
             fs.appendFileSync('auth-debug.log', `\n--- DEBUG ${new Date().toISOString()} ---\n`);
-            fs.appendFileSync('auth-debug.log', `User: ${user.id}\n`);
-            fs.appendFileSync('auth-debug.log', `Decoded ClinicId: ${decoded.clinicId} (${typeof decoded.clinicId})\n`);
-            fs.appendFileSync('auth-debug.log', `Full Clinics Array: ${JSON.stringify(clinics, null, 2)}\n`);
-            fs.appendFileSync('auth-debug.log', `Returned Roles: ${JSON.stringify(currentClinicRoles)}\n`);
+            fs.appendFileSync('auth-debug.log', `User: ${user.id}\nDecoded ClinicId: ${decoded.clinicId} (${typeof decoded.clinicId})\nFull Clinics Array: ${JSON.stringify(clinics, null, 2)}\nReturned Roles: ${JSON.stringify(currentClinicRoles)}\n`);
         } catch (e) { }
-
-        res.json({
-            user,
-            clinics,
-            currentClinic: {
-                clinicId: decoded.clinicId,
-                roles: currentClinicRoles
-            },
-            serverTime: new Date().toISOString(),
-            requestId: Math.random().toString(36).substring(7)
-        });
+        res.json({ user, clinics, currentClinic: { clinicId: decoded.clinicId, roles: currentClinicRoles }, serverTime: new Date().toISOString(), requestId: Math.random().toString(36).substring(7) });
     } catch (error) {
         console.error('Get user error:', error);
         res.status(401).json({ message: 'Unauthorized' });
@@ -614,328 +275,151 @@ router.get('/me', async (req, res) => {
 });
 
 // Logout
-router.post('/logout', (req, res) => {
-    res.clearCookie('token');
-    res.json({ message: 'Logged out' });
-});
+router.post('/logout', (req, res) => { res.clearCookie('token'); res.json({ message: 'Logged out' }); });
 
-/**
- * POST /api/auth/accept-invite
- * Accept an invitation to join a clinic
- * Creates user if doesn't exist, or adds role to existing user
- */
+// Accept invite
 router.post('/accept-invite', async (req, res) => {
     try {
         const { token, password, fullName } = req.body;
+        if (!token) return res.status(400).json({ message: 'Invitation token is required' });
+        const cryptoMod = await import('crypto');
+        const hashedToken = cryptoMod.createHash('sha256').update(token).digest('hex');
 
-        if (!token) {
-            return res.status(400).json({ message: 'Invitation token is required' });
-        }
-
-        // Hash the token to match stored version
-        const crypto = await import('crypto');
-        const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
-
-        // Find invite
-        const invite = db.prepare(`
-            SELECT i.*, c.name as clinicName, r.name as roleName
-            FROM Invite i
-            JOIN Clinic c ON i.clinicId = c.id
-            JOIN Role r ON i.roleId = r.id
-            WHERE i.token = ? AND i.acceptedAt IS NULL
-        `).get(hashedToken);
-
-        if (!invite) {
-            return res.status(404).json({ message: 'Invalid or already used invitation' });
-        }
-
-        // Check if expired
+        const invite = await prisma.invite.findFirst({
+            where: { token: hashedToken, acceptedAt: null },
+            include: { clinic: true, role: true }
+        });
+        if (!invite) return res.status(404).json({ message: 'Invalid or already used invitation' });
         const now = new Date();
         const expiresAt = new Date(invite.expiresAt);
-        if (now > expiresAt) {
-            return res.status(400).json({ message: 'Invitation has expired' });
-        }
+        if (now > expiresAt) return res.status(400).json({ message: 'Invitation has expired' });
 
-        // Check if user exists
-        let user = db.prepare('SELECT * FROM User WHERE email = ?').get(invite.email);
-
+        let user = await prisma.user.findUnique({ where: { email: invite.email } });
         if (user) {
-            // User exists - just add role to clinic
-            // Check if user already has this role in this clinic
-            const existingRole = db.prepare(`
-                SELECT * FROM ClinicUser 
-                WHERE userId = ? AND clinicId = ? AND roleId = ?
-            `).get(user.id, invite.clinicId, invite.roleId);
-
-            if (existingRole) {
-                return res.status(400).json({
-                    message: 'You already have this role in this clinic'
-                });
-            }
-
-            // Add role to clinic
-            db.prepare(`
-                INSERT INTO ClinicUser (userId, clinicId, roleId)
-                VALUES (?, ?, ?)
-            `).run(user.id, invite.clinicId, invite.roleId);
-
+            const existingRole = await prisma.clinicUser.findFirst({
+                where: { userId: user.id, clinicId: invite.clinicId, roleId: invite.roleId }
+            });
+            if (existingRole) return res.status(400).json({ message: 'You already have this role in this clinic' });
+            await prisma.clinicUser.create({ data: { userId: user.id, clinicId: invite.clinicId, roleId: invite.roleId } });
         } else {
-            // User doesn't exist - create new user
-            if (!password || !fullName) {
-                return res.status(400).json({
-                    message: 'Password and full name are required for new users'
-                });
-            }
-
+            if (!password || !fullName) return res.status(400).json({ message: 'Password and full name are required for new users' });
             const hashedPassword = await bcrypt.hash(password, 10);
-
-            const userInfo = db.prepare(`
-                INSERT INTO User (email, password, fullName)
-                VALUES (?, ?, ?)
-            `).run(invite.email, hashedPassword, fullName);
-
-            const userId = userInfo.lastInsertRowid;
-
-            // Add role to clinic
-            db.prepare(`
-                INSERT INTO ClinicUser (userId, clinicId, roleId)
-                VALUES (?, ?, ?)
-            `).run(userId, invite.clinicId, invite.roleId);
-
-            user = {
-                id: userId,
-                email: invite.email,
-                fullName
-            };
+            user = await prisma.user.create({
+                data: { email: invite.email, password: hashedPassword, fullName }
+            });
+            await prisma.clinicUser.create({ data: { userId: user.id, clinicId: invite.clinicId, roleId: invite.roleId } });
         }
-
-        // Mark invite as accepted
-        db.prepare(`
-            UPDATE Invite SET acceptedAt = CURRENT_TIMESTAMP WHERE id = ?
-        `).run(invite.id);
-
-        // Generate JWT
-        const jwtToken = jwt.sign(
-            {
-                userId: user.id,
-                clinicId: invite.clinicId,
-                roles: [invite.roleName]
-            },
-            JWT_SECRET,
-            { expiresIn: '7d' }
-        );
-
-        // Set cookie for web
-        res.cookie('token', jwtToken, {
-            httpOnly: true,
-            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+        await prisma.invite.update({
+            where: { id: invite.id },
+            data: { acceptedAt: new Date() }
         });
-
-        res.json({
-            message: 'Invitation accepted successfully',
-            user: {
-                id: user.id,
-                email: user.email,
-                fullName: user.fullName
-            },
-            clinic: {
-                id: invite.clinicId,
-                name: invite.clinicName
-            },
-            role: invite.roleName,
-            token: jwtToken // Also return token for mobile clients
-        });
+        const jwtToken = jwt.sign({ userId: user.id, clinicId: invite.clinicId, roles: [invite.role.name] }, JWT_SECRET, { expiresIn: '7d' });
+        res.cookie('token', jwtToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
+        res.json({ message: 'Invitation accepted successfully', user: { id: user.id, email: user.email, fullName: user.fullName }, clinic: { id: invite.clinicId, name: invite.clinic.name }, role: invite.role.name, token: jwtToken });
     } catch (error) {
         console.error('Accept invite error:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 });
 
-/**
- * GET /api/auth/profile
- * Get full profile details including doctor profile if exists
- */
+// Get profile
 router.get('/profile', async (req, res) => {
     try {
         let token = req.cookies.token;
         if (!token && req.headers.authorization) {
             const authHeader = req.headers.authorization;
-            if (authHeader.startsWith('Bearer ')) {
-                token = authHeader.substring(7);
-            }
+            if (authHeader.startsWith('Bearer ')) token = authHeader.substring(7);
         }
-
         if (!token) return res.status(401).json({ message: 'Unauthorized' });
-
         const decoded = jwt.verify(token, JWT_SECRET);
-        const user = db.prepare('SELECT id, email, fullName, emailVerified, profileImage FROM User WHERE id = ?').get(decoded.userId);
-
-        if (!user) return res.status(404).json({ message: 'User not found' });
-
-        const doctorProfile = db.prepare('SELECT * FROM DoctorProfile WHERE userId = ?').get(user.id);
-        const receptionistProfile = db.prepare('SELECT * FROM ReceptionistProfile WHERE userId = ?').get(user.id);
-
-        res.json({
-            user,
-            doctorProfile: doctorProfile || null,
-            receptionistProfile: receptionistProfile || null
+        const user = await prisma.user.findUnique({
+            where: { id: decoded.userId },
+            select: { id: true, email: true, fullName: true, emailVerified: true, profileImage: true }
         });
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        const doctorProfile = await prisma.doctorProfile.findUnique({ where: { userId: decoded.userId } });
+        const receptionistProfile = await prisma.receptionistProfile.findUnique({ where: { userId: decoded.userId } });
+        res.json({ user, doctorProfile: doctorProfile || null, receptionistProfile: receptionistProfile || null });
     } catch (error) {
         console.error('Get profile error:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 });
 
-/**
- * POST /api/auth/profile
- * Update user and doctor profile
- */
+// Update profile
 router.post('/profile', async (req, res) => {
     try {
         let token = req.cookies.token;
         if (!token && req.headers.authorization) {
             const authHeader = req.headers.authorization;
-            if (authHeader.startsWith('Bearer ')) {
-                token = authHeader.substring(7);
-            }
+            if (authHeader.startsWith('Bearer ')) token = authHeader.substring(7);
         }
-
         if (!token) return res.status(401).json({ message: 'Unauthorized' });
-
         const decoded = jwt.verify(token, JWT_SECRET);
-        const {
-            fullName,
-            email,
-            specialization,
-            subspecialty,
-            licenseNumber,
-            prcId,
-            bio,
-            consultationFee,
-            clinicHours,
-            digitalSignature,
-            ptrTaxId,
-            ePrescriptionId,
-            education,
-            experience,
-            profileImage,
-            dateOfBirth,
-            address,
-            phone,
-            emergencyContactName,
-            emergencyContactPhone,
-            position,
-            yearsOfExperience,
-            skills
-        } = req.body;
+        const { fullName, email, specialization, subspecialty, licenseNumber, prcId, bio, consultationFee, clinicHours, digitalSignature, ptrTaxId, ePrescriptionId, education, experience, profileImage, dateOfBirth, address, phone, emergencyContactName, emergencyContactPhone, position, yearsOfExperience, skills } = req.body;
+        if (!fullName || !email) return res.status(400).json({ message: 'Full name and email are required' });
 
-        if (!fullName || !email) {
-            return res.status(400).json({ message: 'Full name and email are required' });
-        }
+        await prisma.$transaction(async (tx) => {
+            await tx.user.update({
+                where: { id: decoded.userId },
+                data: { fullName, email, profileImage: profileImage || null }
+            });
 
-        // Start transaction
-        const transaction = db.transaction(() => {
-            // Update User (including profileImage)
-            db.prepare('UPDATE User SET fullName = ?, email = ?, profileImage = ? WHERE id = ?').run(
-                fullName, 
-                email, 
-                profileImage || null, 
-                decoded.userId
-            );
-
-            // Update or Create Doctor Profile
-            const existingProfile = db.prepare('SELECT id FROM DoctorProfile WHERE userId = ?').get(decoded.userId);
-
-            if (existingProfile) {
-                db.prepare(`
-                    UPDATE DoctorProfile 
-                    SET specialization = ?, subspecialty = ?, licenseNumber = ?, prcId = ?,
-                        bio = ?, consultationFee = ?, clinicHours = ?,
-                        digitalSignature = ?, ptrTaxId = ?, ePrescriptionId = ?,
-                        education = ?, experience = ?, updatedAt = CURRENT_TIMESTAMP
-                    WHERE userId = ?
-                `).run(
-                    specialization || null,
-                    subspecialty || null,
-                    licenseNumber || null,
-                    prcId || null,
-                    bio || null,
-                    consultationFee ? parseFloat(consultationFee) : null,
-                    clinicHours || null,
-                    digitalSignature || null,
-                    ptrTaxId || null,
-                    ePrescriptionId || null,
-                    education || null,
-                    experience ? parseInt(experience) : null,
-                    decoded.userId
-                );
+            // Doctor profile
+            const existingDoctorProfile = await tx.doctorProfile.findUnique({ where: { userId: decoded.userId } });
+            if (existingDoctorProfile) {
+                await tx.doctorProfile.update({
+                    where: { userId: decoded.userId },
+                    data: {
+                        specialization: specialization || null, subspecialty: subspecialty || null,
+                        licenseNumber: licenseNumber || null, prcId: prcId || null,
+                        bio: bio || null, consultationFee: consultationFee ? parseFloat(consultationFee) : null,
+                        clinicHours: clinicHours || null, digitalSignature: digitalSignature || null,
+                        ptrTaxId: ptrTaxId || null, ePrescriptionId: ePrescriptionId || null,
+                        education: education || null, experience: experience ? parseInt(experience) : null
+                    }
+                });
             } else if (specialization || licenseNumber || bio) {
-                db.prepare(`
-                    INSERT INTO DoctorProfile (userId, specialization, subspecialty, licenseNumber, prcId, bio, consultationFee, clinicHours, digitalSignature, ptrTaxId, ePrescriptionId, education, experience)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `).run(
-                    decoded.userId,
-                    specialization || null,
-                    subspecialty || null,
-                    licenseNumber || null,
-                    prcId || null,
-                    bio || null,
-                    consultationFee ? parseFloat(consultationFee) : null,
-                    clinicHours || null,
-                    digitalSignature || null,
-                    ptrTaxId || null,
-                    ePrescriptionId || null,
-                    education || null,
-                    experience ? parseInt(experience) : null
-                );
+                await tx.doctorProfile.create({
+                    data: {
+                        userId: decoded.userId, specialization: specialization || null, subspecialty: subspecialty || null,
+                        licenseNumber: licenseNumber || null, prcId: prcId || null, bio: bio || null,
+                        consultationFee: consultationFee ? parseFloat(consultationFee) : null,
+                        clinicHours: clinicHours || null, digitalSignature: digitalSignature || null,
+                        ptrTaxId: ptrTaxId || null, ePrescriptionId: ePrescriptionId || null,
+                        education: education || null, experience: experience ? parseInt(experience) : null
+                    }
+                });
             }
 
-            // Update or Create Receptionist Profile
-            const existingReceptionistProfile = db.prepare('SELECT id FROM ReceptionistProfile WHERE userId = ?').get(decoded.userId);
-
+            // Receptionist profile
+            const existingReceptionistProfile = await tx.receptionistProfile.findUnique({ where: { userId: decoded.userId } });
             if (existingReceptionistProfile) {
-                db.prepare(`
-                    UPDATE ReceptionistProfile 
-                    SET dateOfBirth = ?, address = ?, phone = ?, emergencyContactName = ?, 
-                        emergencyContactPhone = ?, position = ?, yearsOfExperience = ?, skills = ?, 
-                        updatedAt = CURRENT_TIMESTAMP
-                    WHERE userId = ?
-                `).run(
-                    dateOfBirth || null,
-                    address || null,
-                    phone || null,
-                    emergencyContactName || null,
-                    emergencyContactPhone || null,
-                    position || null,
-                    yearsOfExperience ? parseInt(yearsOfExperience) : null,
-                    skills || null,
-                    decoded.userId
-                );
+                await tx.receptionistProfile.update({
+                    where: { userId: decoded.userId },
+                    data: {
+                        dateOfBirth: dateOfBirth || null, address: address || null, phone: phone || null,
+                        emergencyContactName: emergencyContactName || null, emergencyContactPhone: emergencyContactPhone || null,
+                        position: position || null, yearsOfExperience: yearsOfExperience ? parseInt(yearsOfExperience) : null,
+                        skills: skills || null
+                    }
+                });
             } else if (dateOfBirth || address || phone || position) {
-                db.prepare(`
-                    INSERT INTO ReceptionistProfile (userId, dateOfBirth, address, phone, emergencyContactName, 
-                        emergencyContactPhone, position, yearsOfExperience, skills)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `).run(
-                    decoded.userId,
-                    dateOfBirth || null,
-                    address || null,
-                    phone || null,
-                    emergencyContactName || null,
-                    emergencyContactPhone || null,
-                    position || null,
-                    yearsOfExperience ? parseInt(yearsOfExperience) : null,
-                    skills || null
-                );
+                await tx.receptionistProfile.create({
+                    data: {
+                        userId: decoded.userId, dateOfBirth: dateOfBirth || null, address: address || null,
+                        phone: phone || null, emergencyContactName: emergencyContactName || null,
+                        emergencyContactPhone: emergencyContactPhone || null, position: position || null,
+                        yearsOfExperience: yearsOfExperience ? parseInt(yearsOfExperience) : null, skills: skills || null
+                    }
+                });
             }
         });
-
-        transaction();
 
         res.json({ message: 'Profile updated successfully' });
     } catch (error) {
         console.error('Update profile error:', error);
-        if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        if (error.code === 'P2002') {
             return res.status(400).json({ message: 'Email already in use or constraint violation' });
         }
         res.status(500).json({ message: 'Internal server error' });
