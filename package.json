@@ -60,7 +60,6 @@
     "@vercel/edge-config": "^1.4.3",
     "axios": "^1.13.3",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^12.6.2",
     "concurrently": "^9.2.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",

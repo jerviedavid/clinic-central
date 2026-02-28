@@ -37,6 +37,11 @@ android/local.properties
 ios/App/Pods/
 ios/DerivedData/
 
+# Release signing
+*.keystore
+*.jks
+android/keystore.properties
+
 # Logs
 *.txt
 *.log

@@ -1,4 +1,4 @@
-package com.lifeclinic.app;
+package com.clinicentral.app;
 
 import com.getcapacitor.BridgeActivity;
 

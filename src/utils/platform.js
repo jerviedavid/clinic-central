@@ -48,8 +48,12 @@ export const isPluginAvailable = (pluginName) => {
 export const getApiBaseUrl = () => {
   if (isNative()) {
     // On native mobile, use the configured server URL
-    // This should point to your deployed backend
-    return import.meta.env.VITE_API_URL || 'http://10.0.2.2:5000/api'
+    // This MUST point to your deployed backend (e.g., Railway, Render)
+    const apiUrl = import.meta.env.VITE_API_URL
+    if (!apiUrl) {
+      console.warn('VITE_API_URL not set! Native API calls will fail.')
+    }
+    return apiUrl || 'https://your-backend.example.com/api'
   }
   // On web, use relative path (Vite proxy or production reverse proxy)
   return '/api'
